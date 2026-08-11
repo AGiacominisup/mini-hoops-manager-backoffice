@@ -1,6 +1,7 @@
 const API_URL = import.meta.env.VITE_API_URL
 
 export type UserRole = 'admin' | 'coach' | 'staff'
+export type TournamentStatus = 'planned' | 'in_progress' | 'completed'
 
 export interface AuthSession {
   token: string
@@ -9,6 +10,28 @@ export interface AuthSession {
     email: string
     role: UserRole
   }
+}
+
+export interface Tournament {
+  _id: string
+  name: string
+  startDate: string
+  endDate: string
+  category?: string
+  status: TournamentStatus
+  courts: Array<{ _id: string; name: string }>
+  qualification: {
+    status: 'draft' | 'generated' | 'in_progress' | 'completed'
+    totalMatches: number
+  }
+}
+
+export interface Player {
+  _id: string
+  firstName?: string
+  lastName?: string
+  birthDate?: string
+  guardianContact?: string
 }
 
 interface AuthResponse extends AuthSession {
@@ -33,7 +56,7 @@ export async function apiRequest<T>(
   options: RequestInit = {},
   token?: string,
 ) {
-  if (!API_URL) throw new Error('VITE_API_URL non è configurato.')
+  if (!API_URL) throw new Error('VITE_API_URL is not configured.')
 
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -46,7 +69,7 @@ export async function apiRequest<T>(
   const body = (await response.json().catch(() => ({}))) as ApiErrorResponse
 
   if (!response.ok) {
-    throw new ApiError(body.message ?? `Richiesta non riuscita (${response.status}).`, response.status)
+    throw new ApiError(body.message ?? `Request failed with status ${response.status}.`, response.status)
   }
 
   return body as T
@@ -61,8 +84,8 @@ export function login(email: string, password: string) {
 
 export async function getDashboardCounts(token: string, signal?: AbortSignal) {
   const [tournaments, players, matches] = await Promise.all([
-    apiRequest<{ tournaments: unknown[] }>('/tournaments', { signal }, token),
-    apiRequest<{ players: unknown[] }>('/players', { signal }, token),
+    apiRequest<{ tournaments: Tournament[] }>('/tournaments', { signal }, token),
+    apiRequest<{ players: Player[] }>('/players', { signal }, token),
     apiRequest<{ matches: unknown[] }>('/matches', { signal }, token),
   ])
 
@@ -71,4 +94,14 @@ export async function getDashboardCounts(token: string, signal?: AbortSignal) {
     players: players.players.length,
     matches: matches.matches.length,
   }
+}
+
+export async function getTournaments(token: string, signal?: AbortSignal) {
+  const response = await apiRequest<{ tournaments: Tournament[] }>('/tournaments', { signal }, token)
+  return response.tournaments
+}
+
+export async function getPlayers(token: string, signal?: AbortSignal) {
+  const response = await apiRequest<{ players: Player[] }>('/players', { signal }, token)
+  return response.players
 }

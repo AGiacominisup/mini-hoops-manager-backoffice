@@ -32,6 +32,17 @@ Follow these rules for every change in this repository.
 - Name booleans with clear prefixes such as `is`, `has`, `can`, or `should`.
 - Name event handlers with the `handle` prefix and callback props with the `on` prefix.
 
+## Language and Localization
+
+- Write source code exclusively in English, including identifiers, type names, comments, technical errors, test descriptions, and documentation added alongside code.
+- Never use Italian words for variable, function, component, type, interface, file, or directory names.
+- Display all user-facing interface text in Italian for the current product version.
+- Never hardcode user-facing text directly inside React components or pages.
+- Add every user-facing string to `src/utils/translations.ts` using a descriptive English key, then render it through the `translate` helper.
+- Keep the localization structure ready for future languages even though only Italian translations exist now.
+- Localize labels, buttons, headings, placeholders, tooltips, empty states, validation messages, status names, and accessibility labels.
+- Do not translate backend payload values, API paths, technical identifiers, or persisted enum values; map them to localized labels at the UI boundary.
+
 ## Change Requirements
 
 - Preserve these conventions when editing existing files.
