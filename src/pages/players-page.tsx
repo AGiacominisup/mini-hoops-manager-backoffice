@@ -1,12 +1,13 @@
+import { UserPlus } from 'lucide-react'
 import { useEffect, useEffectEvent, useState } from 'react'
 import { ApiError, getPlayers, type Player } from '../api/api-client'
 import { translate } from '../utils/translations'
 import './workspace-pages.css'
 
-interface PlayersPageProps { token: string; onUnauthorized: () => void }
+interface PlayersPageProps { token: string; onUnauthorized: () => void; onCreate: () => void }
 const dateFormatter = new Intl.DateTimeFormat('it-IT', { day: '2-digit', month: 'long', year: 'numeric' })
 
-export function PlayersPage({ token, onUnauthorized }: PlayersPageProps) {
+export function PlayersPage({ token, onUnauthorized, onCreate }: PlayersPageProps) {
   const [players, setPlayers] = useState<Player[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
@@ -23,9 +24,12 @@ export function PlayersPage({ token, onUnauthorized }: PlayersPageProps) {
   }, [token])
 
   return <section className="workspace-page">
-    <header className="page-heading"><p className="eyebrow">{translate('players.eyebrow')}</p><h1>{translate('players.title')}</h1><p>{translate('players.description')}</p></header>
+    <div className="page-heading-row">
+      <header className="page-heading"><p className="eyebrow">{translate('players.eyebrow')}</p><h1>{translate('players.title')}</h1><p>{translate('players.description')}</p></header>
+      <button className="primary-action" type="button" onClick={onCreate}><UserPlus size={18} />{translate('players.create')}</button>
+    </div>
     {error && <p className="page-error" role="alert">{error}</p>}
     {isLoading ? <div className="page-state">{translate('common.loading')}</div> : players.length === 0 ? <div className="page-state"><strong>{translate('players.emptyTitle')}</strong><p>{translate('players.emptyDescription')}</p></div> :
-      <div className="data-table-wrap"><table className="data-table"><thead><tr><th>{translate('players.name')}</th><th>{translate('players.birthDate')}</th><th>{translate('players.contact')}</th></tr></thead><tbody>{players.map((player) => <tr key={player._id}><td><strong>{[player.firstName, player.lastName].filter(Boolean).join(' ') || translate('common.notAvailable')}</strong></td><td>{player.birthDate ? dateFormatter.format(new Date(player.birthDate)) : translate('common.notAvailable')}</td><td>{player.guardianContact ?? translate('common.notAvailable')}</td></tr>)}</tbody></table></div>}
+      <div className="data-table-wrap"><table className="data-table"><thead><tr><th>{translate('players.name')}</th><th>{translate('players.jerseyNumber')}</th><th>{translate('players.birthDate')}</th><th>{translate('players.contact')}</th></tr></thead><tbody>{players.map((player) => <tr key={player._id}><td><strong>{[player.firstName, player.lastName].filter(Boolean).join(' ') || translate('common.notAvailable')}</strong></td><td>{player.jerseyNumber ?? translate('common.notAvailable')}</td><td>{player.birthDate ? dateFormatter.format(new Date(player.birthDate)) : translate('common.notAvailable')}</td><td>{player.guardianContact ?? translate('common.notAvailable')}</td></tr>)}</tbody></table></div>}
   </section>
 }

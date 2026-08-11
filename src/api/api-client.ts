@@ -26,10 +26,31 @@ export interface Tournament {
   }
 }
 
+export interface CreateTournamentPayload {
+  name: string
+  startDate: string
+  endDate: string
+  category?: string
+  winPoints: number
+  status: 'planned'
+  qualificationAppearancesPerPlayer: number
+  courts: Array<{ name: string }>
+  finalGroups: Array<{ themeName: string; level: number }>
+}
+
 export interface Player {
   _id: string
   firstName?: string
   lastName?: string
+  jerseyNumber?: number
+  birthDate?: string
+  guardianContact?: string
+}
+
+export interface CreatePlayerPayload {
+  firstName?: string
+  lastName?: string
+  jerseyNumber?: number
   birthDate?: string
   guardianContact?: string
 }
@@ -101,7 +122,23 @@ export async function getTournaments(token: string, signal?: AbortSignal) {
   return response.tournaments
 }
 
+export async function createTournament(payload: CreateTournamentPayload, token: string) {
+  const response = await apiRequest<{ message: string; tournament: Tournament }>('/tournaments', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }, token)
+  return response.tournament
+}
+
 export async function getPlayers(token: string, signal?: AbortSignal) {
   const response = await apiRequest<{ players: Player[] }>('/players', { signal }, token)
   return response.players
+}
+
+export async function createPlayer(payload: CreatePlayerPayload, token: string) {
+  const response = await apiRequest<{ message: string; player: Player }>('/players', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }, token)
+  return response.player
 }

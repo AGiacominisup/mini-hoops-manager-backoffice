@@ -5,7 +5,7 @@ import { translate } from '../utils/translations'
 import { ProductLogo } from './product-logo'
 import './app-shell.css'
 
-export type AppPage = 'home' | 'tournaments' | 'players'
+export type AppPage = 'home' | 'tournaments' | 'tournaments/new' | 'players' | 'players/new'
 
 interface AppShellProps {
   activePage: AppPage
@@ -51,8 +51,8 @@ export function AppShell({ activePage, children, session, onNavigate, onLogout }
         <nav className="sidebar-navigation" aria-label={translate('navigation.main')}>
           {navigationItems.map(({ page, label, icon: Icon }) => (
             <a
-              className={activePage === page ? 'sidebar-link sidebar-link--active' : 'sidebar-link'}
-              href={`#/${page}`}
+              className={activePage === page || activePage === `${page}/new` ? 'sidebar-link sidebar-link--active' : 'sidebar-link'}
+              href={`/${page}`}
               key={page}
               onClick={(event) => {
                 event.preventDefault()
