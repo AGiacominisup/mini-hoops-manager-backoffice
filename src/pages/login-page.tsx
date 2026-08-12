@@ -26,6 +26,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       setError(
         loginError instanceof ApiError && loginError.status === 401
           ? translate('login.invalidCredentials')
+          : loginError instanceof DOMException && loginError.name === 'TimeoutError'
+            ? translate('login.timeout')
           : translate('login.serverUnavailable'),
       )
     } finally {

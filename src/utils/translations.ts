@@ -26,6 +26,7 @@ const italianTranslations = {
   'login.submit': 'Accedi',
   'login.submitting': 'Verifica in corso...',
   'login.invalidCredentials': 'Credenziali non valide. Controlla i dati e riprova.',
+  'login.timeout': 'Il server sta impiegando troppo tempo. Attendi qualche secondo e riprova.',
   'login.serverUnavailable': 'Non è stato possibile contattare il server.',
   'login.securityNote': 'Sessione protetta su questo dispositivo',
   'login.brandTitle': 'Il gioco si prepara qui.',

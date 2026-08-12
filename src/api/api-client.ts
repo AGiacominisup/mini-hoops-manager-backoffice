@@ -1,4 +1,5 @@
 const API_URL = import.meta.env.VITE_API_URL
+const REQUEST_TIMEOUT_MS = 30_000
 
 export type UserRole = 'admin' | 'coach' | 'staff'
 export type TournamentStatus = 'planned' | 'in_progress' | 'completed'
@@ -79,21 +80,35 @@ export async function apiRequest<T>(
 ) {
   if (!API_URL) throw new Error('VITE_API_URL is not configured.')
 
-  const response = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  })
-  const body = (await response.json().catch(() => ({}))) as ApiErrorResponse
+  const requestController = new AbortController()
+  const handleAbort = () => requestController.abort(options.signal?.reason)
+  const timeoutId = window.setTimeout(
+    () => requestController.abort(new DOMException('Request timed out.', 'TimeoutError')),
+    REQUEST_TIMEOUT_MS,
+  )
+  options.signal?.addEventListener('abort', handleAbort, { once: true })
 
-  if (!response.ok) {
-    throw new ApiError(body.message ?? `Request failed with status ${response.status}.`, response.status)
+  try {
+    const response = await fetch(`${API_URL}${path}`, {
+      ...options,
+      signal: requestController.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    })
+    const body = (await response.json().catch(() => ({}))) as ApiErrorResponse
+
+    if (!response.ok) {
+      throw new ApiError(body.message ?? `Request failed with status ${response.status}.`, response.status)
+    }
+
+    return body as T
+  } finally {
+    window.clearTimeout(timeoutId)
+    options.signal?.removeEventListener('abort', handleAbort)
   }
-
-  return body as T
 }
 
 export function login(email: string, password: string) {
