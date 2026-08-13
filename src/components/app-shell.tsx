@@ -5,13 +5,15 @@ import { translate } from '../utils/translations'
 import { ProductLogo } from './product-logo'
 import './app-shell.css'
 
-export type AppPage = 'home' | 'tournaments' | 'tournaments/new' | 'players' | 'players/new'
+export type AppPage = 'home' | 'tournaments' | 'tournaments/new' | 'tournaments/edit' | 'tournaments/detail' | 'players' | 'players/new' | 'players/edit'
+
+export type NavigationPage = 'home' | 'tournaments' | 'players'
 
 interface AppShellProps {
   activePage: AppPage
   children: ReactNode
   session: AuthSession
-  onNavigate: (page: AppPage) => void
+  onNavigate: (page: NavigationPage) => void
   onLogout: () => void
 }
 
@@ -24,7 +26,7 @@ const navigationItems = [
 export function AppShell({ activePage, children, session, onNavigate, onLogout }: AppShellProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
-  function handleNavigate(page: AppPage) {
+  function handleNavigate(page: NavigationPage) {
     onNavigate(page)
     setIsMenuOpen(false)
   }
@@ -51,7 +53,7 @@ export function AppShell({ activePage, children, session, onNavigate, onLogout }
         <nav className="sidebar-navigation" aria-label={translate('navigation.main')}>
           {navigationItems.map(({ page, label, icon: Icon }) => (
             <a
-              className={activePage === page || activePage === `${page}/new` ? 'sidebar-link sidebar-link--active' : 'sidebar-link'}
+              className={activePage === page || activePage.startsWith(`${page}/`) ? 'sidebar-link sidebar-link--active' : 'sidebar-link'}
               href={`/${page}`}
               key={page}
               onClick={(event) => {

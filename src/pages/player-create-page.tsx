@@ -33,7 +33,7 @@ export function PlayerCreatePage({ token, onUnauthorized, onCancel, onCreated }:
     }
 
     if (Object.keys(payload).length === 0) {
-      setError(translate('playerCreate.emptyPayload'))
+      setError(translate('playerForm.emptyPayload'))
       return
     }
 
@@ -55,18 +55,18 @@ export function PlayerCreatePage({ token, onUnauthorized, onCancel, onCreated }:
 
     <form className="tournament-form" onSubmit={handleSubmit}>
       <section className="form-section">
-        <div className="form-section-heading"><div><h2>{translate('playerCreate.details')}</h2></div></div>
+        <div className="form-section-heading"><div><h2>{translate('playerForm.details')}</h2></div></div>
         <div className="form-grid">
-          <div className="form-field"><label htmlFor="player-first-name">{translate('playerCreate.firstName')}</label><input id="player-first-name" autoComplete="given-name" value={firstName} onChange={(event) => setFirstName(event.target.value)} placeholder={translate('playerCreate.firstNamePlaceholder')} autoFocus /></div>
-          <div className="form-field"><label htmlFor="player-last-name">{translate('playerCreate.lastName')}</label><input id="player-last-name" autoComplete="family-name" value={lastName} onChange={(event) => setLastName(event.target.value)} placeholder={translate('playerCreate.lastNamePlaceholder')} /></div>
-          <div className="form-field"><label htmlFor="player-jersey-number">{translate('playerCreate.jerseyNumber')}</label><input id="player-jersey-number" type="number" min="0" step="1" inputMode="numeric" value={jerseyNumber} onChange={(event) => setJerseyNumber(event.target.value)} placeholder={translate('playerCreate.jerseyNumberPlaceholder')} /></div>
-          <div className="form-field"><label htmlFor="player-birth-date">{translate('playerCreate.birthDate')}</label><input id="player-birth-date" type="date" value={birthDate} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setBirthDate(event.target.value)} /></div>
-          <div className="form-field"><label htmlFor="player-guardian-contact">{translate('playerCreate.guardianContact')}</label><input id="player-guardian-contact" type="tel" autoComplete="tel" value={guardianContact} onChange={(event) => setGuardianContact(event.target.value)} placeholder={translate('playerCreate.guardianContactPlaceholder')} /></div>
+          <div className="form-field"><label htmlFor="player-first-name">{translate('playerForm.firstName')}</label><input id="player-first-name" autoComplete="given-name" value={firstName} onChange={(event) => setFirstName(event.target.value)} placeholder={translate('playerForm.firstNamePlaceholder')} autoFocus /></div>
+          <div className="form-field"><label htmlFor="player-last-name">{translate('playerForm.lastName')}</label><input id="player-last-name" autoComplete="family-name" value={lastName} onChange={(event) => setLastName(event.target.value)} placeholder={translate('playerForm.lastNamePlaceholder')} /></div>
+          <div className="form-field"><label htmlFor="player-jersey-number">{translate('playerForm.jerseyNumber')}</label><input id="player-jersey-number" type="number" min="0" step="1" inputMode="numeric" value={jerseyNumber} onChange={(event) => setJerseyNumber(event.target.value)} placeholder={translate('playerForm.jerseyNumberPlaceholder')} /></div>
+          <div className="form-field"><label htmlFor="player-birth-date">{translate('playerForm.birthDate')}</label><input id="player-birth-date" type="date" value={birthDate} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setBirthDate(event.target.value)} /></div>
+          <div className="form-field"><label htmlFor="player-guardian-contact">{translate('playerForm.guardianContact')}</label><input id="player-guardian-contact" type="tel" autoComplete="tel" value={guardianContact} onChange={(event) => setGuardianContact(event.target.value)} placeholder={translate('playerForm.guardianContactPlaceholder')} /></div>
         </div>
       </section>
 
       {error && <p className="page-error" role="alert">{error}</p>}
-      <div className="form-actions"><button className="secondary-action" type="button" onClick={onCancel}>{translate('playerCreate.cancel')}</button><button className="primary-action" type="submit" disabled={isSubmitting}>{translate(isSubmitting ? 'playerCreate.submitting' : 'playerCreate.submit')}</button></div>
+      <div className="form-actions"><button className="secondary-action" type="button" onClick={onCancel}>{translate('playerForm.cancel')}</button><button className="primary-action" type="submit" disabled={isSubmitting}>{translate(isSubmitting ? 'playerCreate.submitting' : 'playerCreate.submit')}</button></div>
     </form>
   </section>
 }

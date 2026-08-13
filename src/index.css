@@ -10,6 +10,7 @@
   --color-gray-300: #c8c8c8;
   --color-gray-500: #777777;
   --color-gray-600: #666666;
+  --color-danger: #b3261e;
   font: 16px/1.5 var(--sans);
   color: var(--color-primary);
   color-scheme: light;
