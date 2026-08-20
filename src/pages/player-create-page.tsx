@@ -17,6 +17,7 @@ export function PlayerCreatePage({ token, onUnauthorized, onCancel, onCreated }:
   const [jerseyNumber, setJerseyNumber] = useState('')
   const [birthDate, setBirthDate] = useState('')
   const [guardianContact, setGuardianContact] = useState('')
+  const [skillRating, setSkillRating] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -30,6 +31,7 @@ export function PlayerCreatePage({ token, onUnauthorized, onCancel, onCreated }:
       ...(jerseyNumber ? { jerseyNumber: Number(jerseyNumber) } : {}),
       ...(birthDate ? { birthDate: `${birthDate}T00:00:00.000Z` } : {}),
       ...(guardianContact.trim() ? { guardianContact: guardianContact.trim() } : {}),
+      ...(skillRating ? { skillRating: Number(skillRating) } : {}),
     }
 
     if (Object.keys(payload).length === 0) {
@@ -62,6 +64,7 @@ export function PlayerCreatePage({ token, onUnauthorized, onCancel, onCreated }:
           <div className="form-field"><label htmlFor="player-jersey-number">{translate('playerForm.jerseyNumber')}</label><input id="player-jersey-number" type="number" min="0" step="1" inputMode="numeric" value={jerseyNumber} onChange={(event) => setJerseyNumber(event.target.value)} placeholder={translate('playerForm.jerseyNumberPlaceholder')} /></div>
           <div className="form-field"><label htmlFor="player-birth-date">{translate('playerForm.birthDate')}</label><input id="player-birth-date" type="date" value={birthDate} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setBirthDate(event.target.value)} /></div>
           <div className="form-field"><label htmlFor="player-guardian-contact">{translate('playerForm.guardianContact')}</label><input id="player-guardian-contact" type="tel" autoComplete="tel" value={guardianContact} onChange={(event) => setGuardianContact(event.target.value)} placeholder={translate('playerForm.guardianContactPlaceholder')} /></div>
+          <div className="form-field"><label htmlFor="player-skill-rating">{translate('playerForm.skillRating')}</label><input id="player-skill-rating" type="number" min="0" max="10" step="1" inputMode="numeric" value={skillRating} onChange={(event) => setSkillRating(event.target.value)} placeholder={translate('playerForm.skillRatingPlaceholder')} /></div>
         </div>
       </section>
 

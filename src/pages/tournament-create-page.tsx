@@ -19,6 +19,8 @@ interface FinalGroupInput {
 export function TournamentCreatePage({ token, onUnauthorized, onCancel, onCreated }: TournamentCreatePageProps) {
   const [name, setName] = useState('')
   const [category, setCategory] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [winPoints, setWinPoints] = useState('10')
   const [courts, setCourts] = useState([''])
   const [finalGroups, setFinalGroups] = useState<FinalGroupInput[]>([{ themeName: '', level: '1' }])
@@ -41,6 +43,8 @@ export function TournamentCreatePage({ token, onUnauthorized, onCancel, onCreate
     try {
       await createTournament({
         name: name.trim(),
+        ...(startDate ? { startDate: `${startDate}T00:00:00.000Z` } : {}),
+        ...(endDate ? { endDate: `${endDate}T23:59:59.999Z` } : {}),
         ...(category.trim() ? { category: category.trim() } : {}),
         winPoints: Number(winPoints),
         courts: courts.map((court) => ({ name: court.trim() })),
@@ -65,6 +69,8 @@ export function TournamentCreatePage({ token, onUnauthorized, onCancel, onCreate
         <div className="form-grid">
           <div className="form-field form-field--wide"><label htmlFor="tournament-name">{translate('tournamentForm.name')}</label><input id="tournament-name" value={name} onChange={(event) => setName(event.target.value)} placeholder={translate('tournamentForm.namePlaceholder')} required autoFocus /></div>
           <div className="form-field"><label htmlFor="tournament-category">{translate('tournamentForm.category')}</label><input id="tournament-category" value={category} onChange={(event) => setCategory(event.target.value)} placeholder={translate('tournamentForm.categoryPlaceholder')} /></div>
+          <div className="form-field"><label htmlFor="tournament-start-date">{translate('tournamentForm.startDate')}</label><input id="tournament-start-date" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
+          <div className="form-field"><label htmlFor="tournament-end-date">{translate('tournamentForm.endDate')}</label><input id="tournament-end-date" type="date" min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></div>
           <div className="form-field"><label htmlFor="tournament-status">{translate('tournamentCreate.status')}</label><select id="tournament-status" value="draft" disabled><option value="draft">{translate('tournaments.draft')}</option></select></div>
           <div className="form-field"><label htmlFor="tournament-win-points">{translate('tournamentForm.winPoints')}</label><input id="tournament-win-points" type="number" min="1" step="1" value={winPoints} onChange={(event) => setWinPoints(event.target.value)} required /></div>
         </div>

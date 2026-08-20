@@ -21,6 +21,8 @@ interface FinalGroupInput {
 export function TournamentEditPage({ tournamentId, token, onUnauthorized, onCancel, onUpdated }: TournamentEditPageProps) {
   const [name, setName] = useState('')
   const [category, setCategory] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [winPoints, setWinPoints] = useState('')
   const [courts, setCourts] = useState<string[]>([''])
   const [finalGroups, setFinalGroups] = useState<FinalGroupInput[]>([{ themeName: '', level: '1' }])
@@ -37,6 +39,8 @@ export function TournamentEditPage({ tournamentId, token, onUnauthorized, onCanc
     getTournament(tournamentId, token, controller.signal).then((tournament) => {
       setName(tournament.name)
       setCategory(tournament.category ?? '')
+      setStartDate(tournament.startDate ? tournament.startDate.slice(0, 10) : '')
+      setEndDate(tournament.endDate ? tournament.endDate.slice(0, 10) : '')
       setWinPoints(String(tournament.winPoints))
       setCourts(tournament.courts.length > 0 ? tournament.courts.map((court) => court.name) : [''])
       setFinalGroups(tournament.finalGroups.length > 0
@@ -67,6 +71,8 @@ export function TournamentEditPage({ tournamentId, token, onUnauthorized, onCanc
 
     const payload: UpdateTournamentPayload = {
       name: name.trim(),
+      ...(startDate ? { startDate: `${startDate}T00:00:00.000Z` } : {}),
+      ...(endDate ? { endDate: `${endDate}T23:59:59.999Z` } : {}),
       winPoints: Number(winPoints),
       finalGroups: finalGroups.map((group) => ({ themeName: group.themeName.trim(), level: Number(group.level) })),
       ...(category.trim() ? { category: category.trim() } : {}),
@@ -98,6 +104,8 @@ export function TournamentEditPage({ tournamentId, token, onUnauthorized, onCanc
           <div className="form-grid">
             <div className="form-field form-field--wide"><label htmlFor="tournament-name">{translate('tournamentForm.name')}</label><input id="tournament-name" value={name} onChange={(event) => setName(event.target.value)} placeholder={translate('tournamentForm.namePlaceholder')} minLength={3} required autoFocus /></div>
             <div className="form-field"><label htmlFor="tournament-category">{translate('tournamentForm.category')}</label><input id="tournament-category" value={category} onChange={(event) => setCategory(event.target.value)} placeholder={translate('tournamentForm.categoryPlaceholder')} /></div>
+            <div className="form-field"><label htmlFor="tournament-start-date">{translate('tournamentForm.startDate')}</label><input id="tournament-start-date" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
+            <div className="form-field"><label htmlFor="tournament-end-date">{translate('tournamentForm.endDate')}</label><input id="tournament-end-date" type="date" min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></div>
             <div className="form-field"><label htmlFor="tournament-status">{translate('tournamentEdit.status')}</label><select id="tournament-status" value={status} disabled><option value={status}>{translate(tournamentStatusKeys[status])}</option></select></div>
             <div className="form-field"><label htmlFor="tournament-win-points">{translate('tournamentForm.winPoints')}</label><input id="tournament-win-points" type="number" min="1" step="1" value={winPoints} onChange={(event) => setWinPoints(event.target.value)} required /></div>
           </div>

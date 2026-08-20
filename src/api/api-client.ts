@@ -46,6 +46,8 @@ export interface Tournament {
 
 export interface CreateTournamentPayload {
   name: string
+  startDate?: string
+  endDate?: string
   category?: string
   winPoints: number
   courts: Array<{ name: string }>
@@ -54,6 +56,8 @@ export interface CreateTournamentPayload {
 
 export interface UpdateTournamentPayload {
   name?: string
+  startDate?: string
+  endDate?: string
   category?: string
   winPoints?: number
   courts?: Array<{ name: string }>
@@ -67,6 +71,7 @@ export interface Player {
   jerseyNumber?: number
   birthDate?: string
   guardianContact?: string
+  skillRating?: number
   createdAt: string
   updatedAt: string
 }
@@ -77,6 +82,7 @@ export interface CreatePlayerPayload {
   jerseyNumber?: number
   birthDate?: string
   guardianContact?: string
+  skillRating?: number
 }
 
 export type UpdatePlayerPayload = CreatePlayerPayload
@@ -86,11 +92,17 @@ export interface Registration {
   tournamentId: string
   playerId: string
   jerseyNumber?: number
+  skillRating?: number
   rankingPoints: number
   matchesPlayed: number
   wins: number
   pointsScored: number
   pointsAllowed: number
+  pointsMade: number
+  assists: number
+  fouls: number
+  mvpAwards: number
+  fairPlayAwards: number
   finalGroupId: string | null
   attendanceStatus: AttendanceStatus
   checkedInAt: string | null
@@ -102,6 +114,12 @@ export interface MatchPlayer {
   registrationId: string
   jerseyNumber?: number
   name?: string
+  skillRating?: number
+}
+
+export interface MatchAvailability {
+  playable: boolean
+  busyRegistrationIds: string[]
 }
 
 export interface Match {
@@ -116,6 +134,7 @@ export interface Match {
   scoreA: number
   scoreB: number
   teams: Array<{ side: 'A' | 'B'; players: MatchPlayer[] }>
+  availability?: MatchAvailability
   createdAt: string
   updatedAt: string
 }
@@ -126,14 +145,96 @@ interface AuthResponse extends AuthSession {
 
 interface ApiErrorResponse {
   message?: string
+  errors?: Record<string, string[]>
+}
+
+export interface TournamentSetup {
+  tournament: Tournament
+  attendance: {
+    total: number
+    registered: number
+    checkedIn: number
+    withdrawn: number
+  }
+  readiness: {
+    ready: boolean
+    blockers: string[]
+  }
+}
+
+export interface QualificationMetrics {
+  matches: number
+  extraAppearances: number
+  maxAppearanceDifference: number
+  maxTeammatePairCount: number
+  maxOpponentPairCount: number
+  maxSkillDifference: number
+  averageSkillDifference: number
+  matchesOverSkillTolerance: number
+}
+
+export interface QualificationPreview {
+  matches: Match[]
+  metrics: QualificationMetrics
+  seed: string
+  rosterFingerprint: string
+}
+
+export interface DeleteTournamentSummary {
+  matches: number
+  matchReports: number
+  registrations: number
+  courtAccessCodes: number
+}
+
+export interface MatchReportBasketInput {
+  registrationId: string
+  points: 1 | 2
+  assistRegistrationId?: string | null
+  clientSequence: number
+  clientRecordedAt?: string
+}
+
+export interface MatchReportFoulInput {
+  registrationId: string
+  clientSequence: number
+  clientRecordedAt?: string
+}
+
+export interface MatchReportSubmitRequest {
+  submissionId: string
+  scoreA: number
+  scoreB: number
+  baskets?: MatchReportBasketInput[]
+  fouls?: MatchReportFoulInput[]
+  awards?: {
+    mvpRegistrationId?: string | null
+    fairPlayRegistrationId?: string | null
+  }
+}
+
+export interface MatchReport {
+  _id: string
+  matchId: string
+  tournamentId: string
+  courtId: string
+  submissionId: string
+  scoreA: number
+  scoreB: number
+  unattributedPointsA: number
+  unattributedPointsB: number
+  submittedAt: string
+  revision: number
 }
 
 export class ApiError extends Error {
   readonly status: number
+  readonly errors?: Record<string, string[]>
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, errors?: Record<string, string[]>) {
     super(message)
     this.status = status
+    this.errors = errors
   }
 }
 
@@ -157,7 +258,7 @@ export async function apiRequest<T>(
       ...options,
       signal: requestController.signal,
       headers: {
-        'Content-Type': 'application/json',
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...options.headers,
       },
@@ -165,7 +266,7 @@ export async function apiRequest<T>(
     const body = (await response.json().catch(() => ({}))) as ApiErrorResponse
 
     if (!response.ok) {
-      throw new ApiError(body.message ?? `Request failed with status ${response.status}.`, response.status)
+      throw new ApiError(body.message ?? `Request failed with status ${response.status}.`, response.status, body.errors)
     }
 
     return body as T
@@ -223,7 +324,47 @@ export async function updateTournament(tournamentId: string, payload: UpdateTour
 }
 
 export async function deleteTournament(tournamentId: string, token: string) {
-  await apiRequest<{ message: string }>(`/tournaments/${encodeURIComponent(tournamentId)}`, { method: 'DELETE' }, token)
+  const response = await apiRequest<{ message: string; summary: DeleteTournamentSummary }>(
+    `/tournaments/${encodeURIComponent(tournamentId)}`,
+    { method: 'DELETE' },
+    token,
+  )
+  return response.summary
+}
+
+export async function getTournamentSetup(tournamentId: string, token: string, signal?: AbortSignal) {
+  return apiRequest<TournamentSetup>(`/tournaments/${encodeURIComponent(tournamentId)}/setup`, { signal }, token)
+}
+
+export async function previewQualification(tournamentId: string, token: string) {
+  return apiRequest<QualificationPreview>(
+    `/tournaments/${encodeURIComponent(tournamentId)}/qualification/preview`,
+    { method: 'POST', body: JSON.stringify({}) },
+    token,
+  )
+}
+
+export async function generateQualification(
+  tournamentId: string,
+  seed: string,
+  rosterFingerprint: string,
+  token: string,
+) {
+  const response = await apiRequest<{ message: string; tournament: Tournament; matches: Match[] }>(
+    `/tournaments/${encodeURIComponent(tournamentId)}/qualification/generate`,
+    { method: 'POST', body: JSON.stringify({ seed, rosterFingerprint }) },
+    token,
+  )
+  return response
+}
+
+export async function cancelQualification(tournamentId: string, token: string) {
+  const response = await apiRequest<{ message: string; tournament: Tournament }>(
+    `/tournaments/${encodeURIComponent(tournamentId)}/qualification`,
+    { method: 'DELETE' },
+    token,
+  )
+  return response.tournament
 }
 
 export async function startTournament(tournamentId: string, token: string) {
@@ -270,6 +411,18 @@ export async function removeTournamentRegistrations(tournamentId: string, player
   )
 }
 
+export async function updateTournamentAttendance(
+  tournamentId: string,
+  updates: Array<{ playerId: string; attendanceStatus: AttendanceStatus }>,
+  token: string,
+) {
+  return apiRequest<{ message: string; summary: { modified: number } }>(
+    `/tournaments/${encodeURIComponent(tournamentId)}/registrations/attendance`,
+    { method: 'PATCH', body: JSON.stringify({ registrations: updates }) },
+    token,
+  )
+}
+
 export async function getTournamentMatches(tournamentId: string, token: string, signal?: AbortSignal) {
   const response = await apiRequest<{ matches: Match[] }>(
     `/matches?tournamentId=${encodeURIComponent(tournamentId)}`,
@@ -277,6 +430,58 @@ export async function getTournamentMatches(tournamentId: string, token: string, 
     token,
   )
   return response.matches
+}
+
+export async function assignMatchToCourt(matchId: string, courtId: string, token: string) {
+  const response = await apiRequest<{ message: string; match: Match }>(
+    `/matches/${encodeURIComponent(matchId)}/assign`,
+    { method: 'POST', body: JSON.stringify({ courtId }) },
+    token,
+  )
+  return response.match
+}
+
+export async function assignNextMatch(tournamentId: string, courtId: string, token: string) {
+  const response = await apiRequest<{ message: string; match: Match | null }>(
+    `/tournaments/${encodeURIComponent(tournamentId)}/courts/${encodeURIComponent(courtId)}/assign-next`,
+    { method: 'POST', body: JSON.stringify({}) },
+    token,
+  )
+  return response.match
+}
+
+export async function startMatch(matchId: string, token: string) {
+  const response = await apiRequest<{ message: string; match: Match }>(
+    `/matches/${encodeURIComponent(matchId)}/start`,
+    { method: 'POST', body: JSON.stringify({}) },
+    token,
+  )
+  return response.match
+}
+
+export async function completeMatch(matchId: string, token: string) {
+  return apiRequest<{ message: string; match: Match; nextMatch: Match | null; idempotent: boolean }>(
+    `/matches/${encodeURIComponent(matchId)}/complete`,
+    { method: 'POST', body: JSON.stringify({}) },
+    token,
+  )
+}
+
+export async function getMatchReport(matchId: string, token: string, signal?: AbortSignal) {
+  const response = await apiRequest<{ report: MatchReport | null }>(
+    `/matches/${encodeURIComponent(matchId)}/report`,
+    { signal },
+    token,
+  )
+  return response.report
+}
+
+export async function submitMatchReport(matchId: string, payload: MatchReportSubmitRequest, token: string) {
+  return apiRequest<{ message: string; report: MatchReport; match: Match; nextMatch: Match | null; warnings: string[]; idempotent: boolean }>(
+    `/matches/${encodeURIComponent(matchId)}/report`,
+    { method: 'POST', body: JSON.stringify(payload) },
+    token,
+  )
 }
 
 export async function getPlayers(token: string, signal?: AbortSignal) {

@@ -24,8 +24,10 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       onLogin(await login(email.trim(), password))
     } catch (loginError) {
       setError(
-        loginError instanceof ApiError && loginError.status === 401
-          ? translate('login.invalidCredentials')
+        loginError instanceof ApiError && (loginError.status === 400 || loginError.status === 401)
+          ? loginError.status === 401
+            ? translate('login.invalidCredentials')
+            : translate('login.invalidRequest')
           : loginError instanceof DOMException && loginError.name === 'TimeoutError'
             ? translate('login.timeout')
           : translate('login.serverUnavailable'),

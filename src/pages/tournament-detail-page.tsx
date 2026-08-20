@@ -1,8 +1,9 @@
-import { ArrowLeft, Pencil, Play, Trash2, UserPlus, X } from 'lucide-react'
+import { ArrowLeft, Pencil, Play, Trash2, UserPlus, X, Zap } from 'lucide-react'
 import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import {
   addTournamentRegistrations,
   ApiError,
+  assignMatchToCourt,
   getAvailablePlayers,
   getPlayers,
   getTournament,
@@ -67,6 +68,9 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
   const [isRemoving, setIsRemoving] = useState(false)
   const [isStartDialogOpen, setIsStartDialogOpen] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
+  const [matchToAssign, setMatchToAssign] = useState<Match | null>(null)
+  const [selectedCourtId, setSelectedCourtId] = useState<string>('')
+  const [isAssigning, setIsAssigning] = useState(false)
   const handleUnauthorized = useEffectEvent(onUnauthorized)
 
   useEffect(() => {
@@ -249,6 +253,30 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
     }
   }
 
+  function handleOpenAssignDialog(match: Match) {
+    setError('')
+    setMatchToAssign(match)
+    setSelectedCourtId('')
+  }
+
+  async function handleConfirmAssign() {
+    if (!matchToAssign || !selectedCourtId) return
+    setError('')
+    setIsAssigning(true)
+    try {
+      const updatedMatch = await assignMatchToCourt(matchToAssign._id, selectedCourtId, token)
+      setMatches((currentMatches) => currentMatches.map((match) => match._id === matchToAssign._id ? updatedMatch : match))
+      setMatchToAssign(null)
+      setSelectedCourtId('')
+    } catch (requestError) {
+      if (requestError instanceof ApiError && requestError.status === 401) return onUnauthorized()
+      if (requestError instanceof ApiError && requestError.status === 409) setError(translate('tournamentDetail.assignConflict'))
+      else setError(translate('tournamentDetail.assignError'))
+    } finally {
+      setIsAssigning(false)
+    }
+  }
+
   if (isLoading) {
     return <section className="workspace-page">
       <button className="text-action" type="button" onClick={onBack}><ArrowLeft size={17} />{translate('tournamentDetail.back')}</button>
@@ -414,16 +442,23 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
               <th>{translate('tournamentDetail.teamB')}</th>
               <th>{translate('tournamentDetail.court')}</th>
               <th>{translate('tournamentDetail.statusLabel')}</th>
+              <th className="actions-column">{translate('tournaments.actions')}</th>
             </tr></thead>
-            <tbody>{sortedMatches.map((match) => <tr key={match._id}>
-              <td>{match.queuePosition ?? translate('common.notAvailable')}</td>
-              <td>{translate(matchPhaseKeys[match.phase])}</td>
-              <td><div className="team-cell">{getTeamPlayers(match, 'A').map((matchPlayer) => <span key={matchPlayer.registrationId}>{getMatchPlayerLabel(matchPlayer)}</span>)}</div></td>
-              <td><span className="score-cell">{match.scoreA} - {match.scoreB}</span></td>
-              <td><div className="team-cell">{getTeamPlayers(match, 'B').map((matchPlayer) => <span key={matchPlayer.registrationId}>{getMatchPlayerLabel(matchPlayer)}</span>)}</div></td>
-              <td>{(match.courtId && courtNamesById.get(match.courtId)) ?? translate('common.notAvailable')}</td>
-              <td><span className={`status-badge status-badge--${match.status}`}>{translate(matchStatusKeys[match.status])}</span></td>
-            </tr>)}</tbody>
+            <tbody>{sortedMatches.map((match) => {
+              const canAssign = match.status === 'queued' && !match.courtId
+              return <tr key={match._id}>
+                <td>{match.queuePosition ?? translate('common.notAvailable')}</td>
+                <td>{translate(matchPhaseKeys[match.phase])}</td>
+                <td><div className="team-cell">{getTeamPlayers(match, 'A').map((matchPlayer) => <span key={matchPlayer.registrationId}>{getMatchPlayerLabel(matchPlayer)}</span>)}</div></td>
+                <td><span className="score-cell">{match.scoreA} - {match.scoreB}</span></td>
+                <td><div className="team-cell">{getTeamPlayers(match, 'B').map((matchPlayer) => <span key={matchPlayer.registrationId}>{getMatchPlayerLabel(matchPlayer)}</span>)}</div></td>
+                <td>{(match.courtId && courtNamesById.get(match.courtId)) ?? translate('common.notAvailable')}</td>
+                <td><span className={`status-badge status-badge--${match.status}`}>{translate(matchStatusKeys[match.status])}</span></td>
+                <td className="actions-column"><div className="row-actions">
+                  {canAssign && <button className="icon-action" type="button" onClick={() => handleOpenAssignDialog(match)} title={translate('tournamentDetail.assignCourt')} aria-label={translate('tournamentDetail.assignCourt')}><Zap size={16} /></button>}
+                </div></td>
+              </tr>
+            })}</tbody>
           </table></div>}
       </section>
     </div>
@@ -450,5 +485,38 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
       onConfirm={handleConfirmStart}
       onCancel={() => setIsStartDialogOpen(false)}
     />}
+
+    {matchToAssign && <div className="confirm-dialog-overlay" onClick={() => !isAssigning && setMatchToAssign(null)}>
+      <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="confirm-dialog-header">
+          <h2>{translate('tournamentDetail.assignTitle')}</h2>
+          <button className="icon-action" type="button" onClick={() => !isAssigning && setMatchToAssign(null)} title={translate('tournamentDetail.assignCancel')} aria-label={translate('tournamentDetail.assignCancel')}><X size={16} /></button>
+        </div>
+        <div className="confirm-dialog-body">
+          <p>{translate('tournamentDetail.assignDescription')}</p>
+          {error && <p className="page-error" role="alert">{error}</p>}
+          <div className="form-group">
+            <label htmlFor="court-select">{translate('tournamentDetail.selectCourt')}</label>
+            <select
+              id="court-select"
+              value={selectedCourtId}
+              onChange={(e) => setSelectedCourtId(e.target.value)}
+              disabled={isAssigning}
+            >
+              <option value="">{translate('tournamentDetail.selectCourt')}</option>
+              {(tournament?.courts ?? []).map((court) => (
+                <option key={court._id} value={court._id}>
+                  {court.name}{court.enabled === false && ` (${translate('tournamentDetail.courtDisabled')})`}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="confirm-dialog-actions">
+          <button className="secondary-action" type="button" onClick={() => setMatchToAssign(null)} disabled={isAssigning}>{translate('tournamentDetail.assignCancel')}</button>
+          <button className="primary-action" type="button" onClick={handleConfirmAssign} disabled={isAssigning || !selectedCourtId}>{translate(isAssigning ? 'tournamentDetail.assigning' : 'tournamentDetail.assignConfirm')}</button>
+        </div>
+      </div>
+    </div>}
   </section>
 }
