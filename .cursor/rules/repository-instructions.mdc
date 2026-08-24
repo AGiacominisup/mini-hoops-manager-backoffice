@@ -1,3 +1,8 @@
+---
+description: Core repository conventions for commits, structure, naming, and localization
+alwaysApply: true
+---
+
 # Repository Instructions
 
 Follow these rules for every change in this repository.
