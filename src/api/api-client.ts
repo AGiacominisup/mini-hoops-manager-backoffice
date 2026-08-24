@@ -44,6 +44,21 @@ export interface Tournament {
   updatedAt: string
 }
 
+export interface RefereeAvailability {
+  refereeUserId: string
+  email?: string
+  firstName?: string
+  lastName?: string
+  requestedAt?: string
+}
+
+export interface RefereeUser {
+  _id: string
+  email: string
+  firstName?: string
+  lastName?: string
+}
+
 export interface CreateTournamentPayload {
   name: string
   startDate?: string
@@ -133,6 +148,7 @@ export interface Match {
   queuePosition?: number
   scoreA: number
   scoreB: number
+  refereeUserId?: string | RefereeUser | null
   teams: Array<{ side: 'A' | 'B'; players: MatchPlayer[] }>
   availability?: MatchAvailability
   createdAt: string
@@ -225,6 +241,9 @@ export interface MatchReport {
   unattributedPointsB: number
   submittedAt: string
   revision: number
+  baskets?: Array<MatchReportBasketInput & { side: 'A' | 'B' }>
+  fouls?: Array<MatchReportFoulInput & { side: 'A' | 'B' }>
+  submittedBy?: { kind: 'referee_session' | 'user'; sessionId?: string; userId?: string }
 }
 
 export class ApiError extends Error {
@@ -430,6 +449,65 @@ export async function getTournamentMatches(tournamentId: string, token: string, 
     token,
   )
   return response.matches
+}
+
+export async function getMatchRefereeAvailability(matchId: string, token: string) {
+  const response = await apiRequest<unknown>(
+    `/matches/${encodeURIComponent(matchId)}/referee-availability`,
+    {},
+    token,
+  )
+  if (Array.isArray(response)) return response.map(normalizeRefereeAvailability).filter(isRefereeAvailability)
+
+  if (!response || typeof response !== 'object') return []
+  const payload = response as Record<string, unknown>
+  const candidates = payload.availabilities
+    ?? payload.availability
+    ?? payload.refereeAvailabilities
+    ?? payload.referees
+    ?? payload.candidates
+    ?? payload.requests
+    ?? payload.data
+    ?? (payload.refereeUserId || payload.userId || payload.refereeId || payload.referee || payload.user ? response : [])
+  const candidateList = Array.isArray(candidates) ? candidates : [candidates]
+  return candidateList.map(normalizeRefereeAvailability).filter(isRefereeAvailability)
+}
+
+function normalizeRefereeAvailability(value: unknown): RefereeAvailability | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Record<string, unknown>
+  const user = (candidate.refereeUserId ?? candidate.referee ?? candidate.user ?? candidate.refereeUser) as Record<string, unknown> | string | undefined
+  const userObject = typeof user === 'object' && user !== null ? user : undefined
+  const refereeUserId = (typeof candidate.refereeUserId === 'string' ? candidate.refereeUserId : undefined)
+    ?? (typeof candidate.userId === 'string' ? candidate.userId : undefined)
+    ?? (typeof candidate.refereeId === 'string' ? candidate.refereeId : undefined)
+    ?? (typeof user === 'string' ? user : undefined)
+    ?? (typeof candidate.refereeUserId === 'object' && candidate.refereeUserId !== null ? (candidate.refereeUserId as Record<string, unknown>)._id : undefined)
+    ?? userObject?.refereeUserId
+    ?? userObject?.userId
+    ?? userObject?.id
+    ?? userObject?._id
+  if (typeof refereeUserId !== 'string') return null
+  return {
+    refereeUserId,
+    email: typeof candidate.email === 'string' ? candidate.email : typeof userObject?.email === 'string' ? userObject.email : undefined,
+    firstName: typeof candidate.firstName === 'string' ? candidate.firstName : typeof userObject?.firstName === 'string' ? userObject.firstName : undefined,
+    lastName: typeof candidate.lastName === 'string' ? candidate.lastName : typeof userObject?.lastName === 'string' ? userObject.lastName : undefined,
+    requestedAt: typeof candidate.requestedAt === 'string' ? candidate.requestedAt : undefined,
+  }
+}
+
+function isRefereeAvailability(value: RefereeAvailability | null): value is RefereeAvailability {
+  return value !== null
+}
+
+export async function assignMatchReferee(matchId: string, refereeUserId: string, token: string) {
+  const response = await apiRequest<{ message: string; match: Match }>(
+    `/matches/${encodeURIComponent(matchId)}/referee-assignment`,
+    { method: 'POST', body: JSON.stringify({ refereeUserId }) },
+    token,
+  )
+  return response.match
 }
 
 export async function assignMatchToCourt(matchId: string, courtId: string, token: string) {

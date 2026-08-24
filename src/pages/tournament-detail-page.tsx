@@ -1,4 +1,4 @@
-import { ArrowLeft, Pencil, Play, Trash2, UserPlus, X, Zap } from 'lucide-react'
+import { ArrowLeft, Eye, Pencil, Play, Trash2, UserPlus, X, Zap } from 'lucide-react'
 import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import {
   addTournamentRegistrations,
@@ -9,9 +9,14 @@ import {
   getTournament,
   getTournamentMatches,
   getTournamentRegistrations,
+  getMatchReport,
+  getMatchRefereeAvailability,
+  assignMatchReferee,
   removeTournamentRegistrations,
   startTournament,
   type Match,
+  type MatchReport,
+  type RefereeAvailability,
   type MatchPlayer,
   type Player,
   type Registration,
@@ -71,6 +76,15 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
   const [matchToAssign, setMatchToAssign] = useState<Match | null>(null)
   const [selectedCourtId, setSelectedCourtId] = useState<string>('')
   const [isAssigning, setIsAssigning] = useState(false)
+  const [matchInDrawer, setMatchInDrawer] = useState<Match | null>(null)
+  const [matchReport, setMatchReport] = useState<MatchReport | null>(null)
+  const [isLoadingMatchReport, setIsLoadingMatchReport] = useState(false)
+  const [refereeCandidates, setRefereeCandidates] = useState<RefereeAvailability[]>([])
+  const [selectedRefereeId, setSelectedRefereeId] = useState('')
+  const [selectedReferee, setSelectedReferee] = useState<RefereeAvailability | null>(null)
+  const [isLoadingReferees, setIsLoadingReferees] = useState(false)
+  const [isAssigningReferee, setIsAssigningReferee] = useState(false)
+  const [drawerError, setDrawerError] = useState('')
   const handleUnauthorized = useEffectEvent(onUnauthorized)
 
   useEffect(() => {
@@ -262,6 +276,47 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
     setSelectedCourtId('')
   }
 
+  async function handleOpenMatchDrawer(match: Match) {
+    setMatchInDrawer(match)
+    setMatchReport(null)
+    setRefereeCandidates([])
+    const assignedReferee = typeof match.refereeUserId === 'object' && match.refereeUserId !== null ? match.refereeUserId : null
+    setSelectedRefereeId(assignedReferee?._id ?? (typeof match.refereeUserId === 'string' ? match.refereeUserId : ''))
+      setSelectedReferee(assignedReferee ? { refereeUserId: assignedReferee._id, email: assignedReferee.email, firstName: assignedReferee.firstName, lastName: assignedReferee.lastName } : null)
+    setDrawerError('')
+    setIsLoadingMatchReport(true)
+    setIsLoadingReferees(true)
+    void getMatchReport(match._id, token).then((loadedReport) => {
+      setMatchReport(loadedReport)
+    }).catch((requestError: unknown) => {
+      if (requestError instanceof ApiError && requestError.status === 401) return onUnauthorized()
+      if (!(requestError instanceof ApiError && requestError.status === 404)) setDrawerError(translate('tournamentDetail.matchReportLoadError'))
+    }).finally(() => setIsLoadingMatchReport(false))
+    void getMatchRefereeAvailability(match._id, token).then((loadedCandidates) => {
+      setRefereeCandidates(loadedCandidates)
+    }).catch((requestError: unknown) => {
+      if (requestError instanceof ApiError && requestError.status === 401) return onUnauthorized()
+      setDrawerError(translate('tournamentDetail.refereeCandidatesLoadError'))
+    }).finally(() => setIsLoadingReferees(false))
+  }
+
+  async function handleAssignReferee() {
+    if (!matchInDrawer || !selectedRefereeId) return
+    setDrawerError('')
+    setIsAssigningReferee(true)
+    try {
+      const updatedMatch = await assignMatchReferee(matchInDrawer._id, selectedRefereeId, token)
+      setSelectedReferee(refereeCandidates.find((candidate) => candidate.refereeUserId === selectedRefereeId) ?? null)
+      setMatchInDrawer(updatedMatch)
+      setMatches((currentMatches) => currentMatches.map((match) => match._id === updatedMatch._id ? updatedMatch : match))
+    } catch (requestError) {
+      if (requestError instanceof ApiError && requestError.status === 401) return onUnauthorized()
+      setDrawerError(translate('tournamentDetail.refereeAssignmentError'))
+    } finally {
+      setIsAssigningReferee(false)
+    }
+  }
+
   async function handleConfirmAssign() {
     if (!matchToAssign || !selectedCourtId) return
     setError('')
@@ -450,7 +505,7 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
             <tbody>{sortedMatches.map((match) => {
               const canAssign = match.status === 'queued' && !match.courtId && match.availability?.playable === true
               const isBusy = match.status === 'queued' && match.availability?.playable === false
-              const busyPlayers = isBusy ? match.availability.busyRegistrationIds
+              const busyPlayers = isBusy ? (match.availability?.busyRegistrationIds ?? [])
                 .map((regId) => rosterLabelsByRegistrationId.get(regId))
                 .filter((name): name is string => Boolean(name))
                 : []
@@ -466,6 +521,7 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
                   {isBusy && <span className="status-badge status-badge--conflict" title={`${translate('tournamentDetail.assignBusyPlayers')} ${busyPlayers.join(', ')}`}>{translate('tournamentDetail.assignUnavailable')}</span>}
                 </td>
                 <td className="actions-column"><div className="row-actions">
+                  <button className="icon-action" type="button" onClick={() => void handleOpenMatchDrawer(match)} title={translate('tournamentDetail.openMatch')} aria-label={translate('tournamentDetail.openMatch')}><Eye size={16} /></button>
                   {canAssign && <button className="icon-action" type="button" onClick={() => handleOpenAssignDialog(match)} title={translate('tournamentDetail.assignCourt')} aria-label={translate('tournamentDetail.assignCourt')}><Zap size={16} /></button>}
                   {!canAssign && match.status === 'queued' && !match.courtId && <button className="icon-action" type="button" disabled title={`${translate('tournamentDetail.assignUnavailableReason')}: ${busyPlayers.join(', ')}`} aria-label={translate('tournamentDetail.assignUnavailable')}><Zap size={16} /></button>}
                 </div></td>
@@ -535,6 +591,43 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
           <button className="primary-action" type="button" onClick={handleConfirmAssign} disabled={isAssigning || !selectedCourtId || matchToAssign.availability?.playable === false}>{translate(isAssigning ? 'tournamentDetail.assigning' : 'tournamentDetail.assignConfirm')}</button>
         </div>
       </div>
+    </div>}
+
+    {matchInDrawer && <div className="drawer-backdrop" onClick={() => !isAssigningReferee && setMatchInDrawer(null)}>
+      <aside className="match-drawer" role="dialog" aria-modal="true" aria-labelledby="match-drawer-title" onClick={(event) => event.stopPropagation()}>
+        <div className="drawer-header">
+          <div><p className="eyebrow">{translate('tournamentDetail.matchDetails')}</p><h2 id="match-drawer-title">{translate(matchPhaseKeys[matchInDrawer.phase])} #{matchInDrawer.queuePosition ?? '-'}</h2></div>
+          <button className="icon-action" type="button" onClick={() => setMatchInDrawer(null)} title={translate('tournamentDetail.closeMatch')} aria-label={translate('tournamentDetail.closeMatch')}><X size={17} /></button>
+        </div>
+        <div className="drawer-content">
+          {drawerError && <p className="page-error" role="alert">{drawerError}</p>}
+          <div className="drawer-status"><span className={`status-badge status-badge--${matchInDrawer.status}`}>{translate(matchStatusKeys[matchInDrawer.status])}</span><span>{matchInDrawer.courtId ? courtNamesById.get(matchInDrawer.courtId) : translate('common.notAvailable')}</span></div>
+          <div className="drawer-score"><div><span>{translate('tournamentDetail.teamA')}</span><strong>{getTeamPlayers(matchInDrawer, 'A').map(getMatchPlayerLabel).join(' · ')}</strong></div><b>{matchReport?.scoreA ?? matchInDrawer.scoreA} - {matchReport?.scoreB ?? matchInDrawer.scoreB}</b><div><span>{translate('tournamentDetail.teamB')}</span><strong>{getTeamPlayers(matchInDrawer, 'B').map(getMatchPlayerLabel).join(' · ')}</strong></div></div>
+
+          <section className="drawer-section">
+            <h3>{translate('tournamentDetail.refereeAssignment')}</h3>
+            {selectedRefereeId ? <p className="selected-referee selected-referee--assigned">{translate('tournamentDetail.selectedReferee')}: <strong>{selectedReferee ? `${selectedReferee.firstName ?? ''} ${selectedReferee.lastName ?? ''}`.trim() || selectedReferee.email || selectedReferee.refereeUserId : selectedRefereeId}</strong>{selectedReferee?.email && ` (${selectedReferee.email})`}</p> : isLoadingReferees ? <p>{translate('common.loading')}</p> : <>
+              <label className="drawer-field-label" htmlFor="referee-select">{translate('tournamentDetail.refereeCandidates')}</label>
+              <select id="referee-select" className="drawer-select" value={selectedRefereeId} onChange={(event) => setSelectedRefereeId(event.target.value)} disabled={isAssigningReferee}>
+                <option value="">{translate('tournamentDetail.selectReferee')}</option>
+                {refereeCandidates.map((candidate) => <option key={candidate.refereeUserId} value={candidate.refereeUserId}>{candidate.firstName || candidate.lastName ? `${candidate.firstName ?? ''} ${candidate.lastName ?? ''}`.trim() : candidate.email ?? candidate.refereeUserId}</option>)}
+              </select>
+              {refereeCandidates.length === 0 && <p>{translate('tournamentDetail.refereeCandidatesEmpty')}</p>}
+              <button className="primary-action" type="button" onClick={() => void handleAssignReferee()} disabled={isAssigningReferee || !selectedRefereeId}>{translate(isAssigningReferee ? 'tournamentDetail.refereeAssigning' : 'tournamentDetail.assignReferee')}</button>
+            </>}
+          </section>
+
+          <section className="drawer-section">
+            <h3>{translate('tournamentDetail.matchReport')}</h3>
+            {isLoadingMatchReport ? <p>{translate('common.loading')}</p> : !matchReport ? <p>{translate('tournamentDetail.matchReportEmpty')}</p> : <div className="report-facts">
+              <div><span>{translate('tournamentDetail.reportSubmittedAt')}</span><strong>{dateTimeFormatter.format(new Date(matchReport.submittedAt))}</strong></div>
+              <div><span>{translate('tournamentDetail.reportRevision')}</span><strong>{matchReport.revision}</strong></div>
+              <div><span>{translate('tournamentDetail.reportBaskets')}</span><strong>{matchReport.baskets?.length ?? 0}</strong></div>
+              <div><span>{translate('tournamentDetail.reportFouls')}</span><strong>{matchReport.fouls?.length ?? 0}</strong></div>
+            </div>}
+          </section>
+        </div>
+      </aside>
     </div>}
   </section>
 }
