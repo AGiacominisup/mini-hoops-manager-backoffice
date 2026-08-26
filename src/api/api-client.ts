@@ -454,6 +454,15 @@ export async function getTournamentMatches(tournamentId: string, token: string, 
   return response.matches
 }
 
+export async function getMatch(matchId: string, token: string, signal?: AbortSignal) {
+  const response = await apiRequest<{ match: Match }>(
+    `/matches/${encodeURIComponent(matchId)}`,
+    { signal },
+    token,
+  )
+  return response.match
+}
+
 export async function getMatchRefereeAvailability(matchId: string, token: string) {
   const response = await apiRequest<unknown>(
     `/matches/${encodeURIComponent(matchId)}/referee-availability`,
