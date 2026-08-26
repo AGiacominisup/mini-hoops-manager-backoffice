@@ -37,14 +37,17 @@ User administration endpoints require the `admin` role.
 ```ts
 export type UserRole = "admin" | "coach" | "staff" | "referee";
 
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string | null;
+  role: UserRole;
+}
+
 export interface AuthResponse {
   message: string;
   token: string;
-  user: {
-    id: string;
-    email: string;
-    role: UserRole;
-  };
+  user: AuthUser;
 }
 ```
 
@@ -70,10 +73,20 @@ POST /auth/referee/register
 POST /auth/referee/login
 ```
 
-Both endpoints accept the same `{ email, password }` payload as the standard login. Registration
-returns `201` with the created user (without a token); login returns `200 AuthResponse`. A referee
-account receives `403` on every backoffice resource. The scorer uses the returned user token on the
-referee endpoints and can operate only matches assigned to that user.
+Login accepts `{ email, password }` and returns `200 AuthResponse`, including the referee `name`.
+Registration requires `{ email, password, name }`. `name` is a unique display string used when staff
+assigns a referee to a match. Registration returns `201` with the created user (without a token). A
+duplicate email or name returns `409`. A referee account receives `403` on every backoffice resource.
+The scorer uses the returned user token on the referee endpoints and can operate only matches assigned
+to that user.
+
+```json
+{
+  "email": "referee@example.com",
+  "password": "password123",
+  "name": "Mario Rossi"
+}
+```
 
 ## Authorization Matrix
 
@@ -136,8 +149,8 @@ draft ──start──> qualification ──last qualification match──> com
 last qualification match currently moves the tournament straight to `completed`.
 
 Anything other than `draft` means the roster, courts, configuration and `winPoints` are locked.
-`winPoints` is locked with the rest because standings are recomputed from it, so retuning it
-mid-tournament would rewrite every result already earned.
+`winPoints` is kept for compatibility and is not used to compute standings. Ranking uses a fixed
+formula on the player's tournament totals (see `rankingPoints` on Registration).
 
 ### Tournament creation flow
 
@@ -274,13 +287,17 @@ Create payload:
 Only `name` is required. `startDate` and `endDate` are optional; when both are supplied, `endDate`
 cannot precede `startDate`. `status` is not accepted — a new tournament always starts as `draft`. A
 `PATCH` accepts any non-empty subset of the remaining fields, except that `configuration`, `courts`
-and `winPoints` are refused with `409` once the tournament has started. Deletion cascades: every match,
+and `winPoints` are refused with `409` once the tournament has started (`winPoints` no longer affects
+standings; ranking uses the formula on Registration). Deletion cascades: every match,
 match report, registration and court access code of the tournament is removed in a single transaction,
 and the response `summary` reports how many of each were deleted. Players are never deleted, only their
 registrations for that tournament.
 
-A player can only be registered if they have a name or a jersey number; a nameless player's jersey
-number is copied onto the registration automatically.
+A player can only be registered if they have a name or a jersey number — at least one is required so
+they can be identified. When the player has a jersey number it is always copied onto the
+registration, including when they also have a name, and can later be overridden per tournament.
+Parents may withhold a child's name; some tournaments play without numbered jerseys. When both are
+known, both are stored and returned.
 
 ## Players
 
@@ -336,7 +353,7 @@ export interface Registration {
   playerId: string;
   jerseyNumber?: number;
   skillRating?: number; // snapshot of Player.skillRating, and the per-tournament override
-  rankingPoints: number;
+  rankingPoints: number; // derived standing; see formula below
   matchesPlayed: number;
   wins: number;
   pointsScored: number;  // TEAM score of every match played, not this player's own points
@@ -387,9 +404,25 @@ to the player's rating.
 ### Statistics are engine-managed
 
 The ten counters above are derived, not authored. Team numbers (`matchesPlayed`, `wins`,
-`rankingPoints`, `pointsScored`, `pointsAllowed`) are recomputed from the completed matches;
-individual numbers (`pointsMade`, `assists`, `fouls`, `mvpAwards`, `fairPlayAwards`) come from the
-submitted [match reports](#match-reports).
+`pointsScored`, `pointsAllowed`) are recomputed from the completed matches; individual numbers
+(`pointsMade`, `assists`, `fouls`, `mvpAwards`, `fairPlayAwards`) come from the submitted
+[match reports](#match-reports). `rankingPoints` is then derived from those totals after every
+completed match, report, or correction:
+
+```text
+rankingPoints = max(0,
+    wins           * 6
+  + mvpAwards      * 3
+  + fairPlayAwards * 2
+  + ceil(pointsMade / 10)
+  + ceil(assists   / 8)
+  - ceil(fouls     / 5)
+)
+```
+
+The `ceil` terms use **tournament totals**, not each match on its own: 1 personal point then 2 more
+is `ceil(3/10) = 1`, not `1 + 1`. A paper completion with no report still awards `6` for a win and
+nothing from the box score. `Tournament.winPoints` is ignored by this formula.
 
 `pointsScored` is the **team** score copied onto all three teammates — individual scoring is
 `pointsMade`. The names are kept for compatibility.
@@ -443,9 +476,9 @@ export interface MatchAvailability {
 
 export interface MatchPlayer {
   registrationId: string;
-  jerseyNumber?: number;
-  name?: string;
-  skillRating?: number; // the rating the match was balanced on
+  jerseyNumber?: number; // present when known
+  name?: string;         // present when known
+  skillRating?: number;  // the rating the match was balanced on
 }
 
 export interface Match {
@@ -468,6 +501,9 @@ export interface Match {
   updatedAt: string;
 }
 ```
+
+Every `MatchPlayer` requires at least one of `jerseyNumber` or `name`. When both are known they are
+both returned, including on the referee scorer endpoints.
 
 | Method | Path | Response |
 | --- | --- | --- |
@@ -595,17 +631,17 @@ Create payload:
     {
       "side": "A",
       "players": [
-        { "registrationId": "66b000000000000000000101", "jerseyNumber": 4 },
+        { "registrationId": "66b000000000000000000101", "jerseyNumber": 4, "name": "Mario Rossi" },
         { "registrationId": "66b000000000000000000102", "jerseyNumber": 7 },
-        { "registrationId": "66b000000000000000000103", "name": "Mario Rossi" }
+        { "registrationId": "66b000000000000000000103", "name": "Luca Bianchi" }
       ]
     },
     {
       "side": "B",
       "players": [
-        { "registrationId": "66b000000000000000000104", "jerseyNumber": 5 },
+        { "registrationId": "66b000000000000000000104", "jerseyNumber": 5, "name": "Anna Verdi" },
         { "registrationId": "66b000000000000000000105", "jerseyNumber": 8 },
-        { "registrationId": "66b000000000000000000106", "name": "Luca Bianchi" }
+        { "registrationId": "66b000000000000000000106", "name": "Giorgio Neri" }
       ]
     }
   ]
@@ -613,8 +649,14 @@ Create payload:
 ```
 
 There must be exactly two teams, one `A` and one `B`, with exactly three distinct registrations
-each. Every player snapshot requires `jerseyNumber` or `name`. The court, optional final group,
-and all registrations must belong to the selected tournament.
+each. Every player snapshot requires at least one of `jerseyNumber` or `name`. When both are known
+they are both stored and returned — a numbered unnamed player and a named player without a jersey
+are both valid. The court, optional final group, and all registrations must belong to the selected
+tournament.
+
+Generated qualification matches follow the same rule: the snapshot copies the registration jersey
+number (falling back to the player record) and the player's display name, so the scorer and the
+backoffice see both fields whenever both exist.
 
 ## Referee scorer flow
 
@@ -636,7 +678,8 @@ can operate a match only after staff selects that referee for it.
 | `POST` | `/referee/matches/:id/report` | selected `referee` | report result and `nextMatch` |
 
 Availability can be requested only for an incomplete match already assigned to a court. Staff sees
-the pending requests with `GET /matches/:id/referee-availability` and selects one with:
+pending and selected requests with `GET /matches/:id/referee-availability` (each populated with the
+referee `name` and `email`) and selects one with:
 
 ```http
 POST /api/matches/:id/referee-assignment
@@ -833,6 +876,7 @@ also be created here, but public referee registration is available through `/aut
 export interface User {
   id: string;
   email: string;
+  name: string | null;
   role: UserRole;
 }
 ```
@@ -845,13 +889,15 @@ export interface User {
 | `PATCH` | `/users/:id` | `{ message, user }` |
 | `DELETE` | `/users/:id` | `{ message }` |
 
-Create payload requires all fields:
+Create payload requires `email`, `password` and `role`. `name` is optional for staff-created users
+and required for public referee registration. When set, it must be unique.
 
 ```json
 {
   "email": "coach@example.com",
   "password": "password123",
-  "role": "coach"
+  "role": "coach",
+  "name": "Mario Rossi"
 }
 ```
 
