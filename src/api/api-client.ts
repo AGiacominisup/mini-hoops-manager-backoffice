@@ -47,14 +47,17 @@ export interface Tournament {
 export interface RefereeAvailability {
   refereeUserId: string
   email?: string
+  name?: string
   firstName?: string
   lastName?: string
+  status?: string
   requestedAt?: string
 }
 
 export interface RefereeUser {
   _id: string
   email: string
+  name?: string
   firstName?: string
   lastName?: string
 }
@@ -473,27 +476,33 @@ export async function getMatchRefereeAvailability(matchId: string, token: string
   return candidateList.map(normalizeRefereeAvailability).filter(isRefereeAvailability)
 }
 
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
 function normalizeRefereeAvailability(value: unknown): RefereeAvailability | null {
   if (!value || typeof value !== 'object') return null
   const candidate = value as Record<string, unknown>
   const user = (candidate.refereeUserId ?? candidate.referee ?? candidate.user ?? candidate.refereeUser) as Record<string, unknown> | string | undefined
   const userObject = typeof user === 'object' && user !== null ? user : undefined
-  const refereeUserId = (typeof candidate.refereeUserId === 'string' ? candidate.refereeUserId : undefined)
-    ?? (typeof candidate.userId === 'string' ? candidate.userId : undefined)
-    ?? (typeof candidate.refereeId === 'string' ? candidate.refereeId : undefined)
-    ?? (typeof user === 'string' ? user : undefined)
-    ?? (typeof candidate.refereeUserId === 'object' && candidate.refereeUserId !== null ? (candidate.refereeUserId as Record<string, unknown>)._id : undefined)
-    ?? userObject?.refereeUserId
-    ?? userObject?.userId
-    ?? userObject?.id
-    ?? userObject?._id
-  if (typeof refereeUserId !== 'string') return null
+  const refereeUserId = readOptionalString(candidate.refereeUserId)
+    ?? readOptionalString(candidate.userId)
+    ?? readOptionalString(candidate.refereeId)
+    ?? readOptionalString(user)
+    ?? readOptionalString(typeof candidate.refereeUserId === 'object' && candidate.refereeUserId !== null ? (candidate.refereeUserId as Record<string, unknown>)._id : undefined)
+    ?? readOptionalString(userObject?.refereeUserId)
+    ?? readOptionalString(userObject?.userId)
+    ?? readOptionalString(userObject?.id)
+    ?? readOptionalString(userObject?._id)
+  if (!refereeUserId) return null
   return {
     refereeUserId,
-    email: typeof candidate.email === 'string' ? candidate.email : typeof userObject?.email === 'string' ? userObject.email : undefined,
-    firstName: typeof candidate.firstName === 'string' ? candidate.firstName : typeof userObject?.firstName === 'string' ? userObject.firstName : undefined,
-    lastName: typeof candidate.lastName === 'string' ? candidate.lastName : typeof userObject?.lastName === 'string' ? userObject.lastName : undefined,
-    requestedAt: typeof candidate.requestedAt === 'string' ? candidate.requestedAt : undefined,
+    email: readOptionalString(candidate.email) ?? readOptionalString(userObject?.email),
+    name: readOptionalString(candidate.name) ?? readOptionalString(userObject?.name),
+    firstName: readOptionalString(candidate.firstName) ?? readOptionalString(userObject?.firstName),
+    lastName: readOptionalString(candidate.lastName) ?? readOptionalString(userObject?.lastName),
+    status: readOptionalString(candidate.status),
+    requestedAt: readOptionalString(candidate.requestedAt),
   }
 }
 
@@ -501,13 +510,35 @@ function isRefereeAvailability(value: RefereeAvailability | null): value is Refe
   return value !== null
 }
 
+export function getMatchRefereeUserId(match: Pick<Match, 'refereeUserId'>): string {
+  const referee = match.refereeUserId
+  if (typeof referee === 'string') return referee
+  if (referee && typeof referee === 'object') {
+    return readOptionalString(referee._id) ?? ''
+  }
+  return ''
+}
+
+export function getMatchRefereeUser(match: Pick<Match, 'refereeUserId'>): RefereeUser | null {
+  const referee = match.refereeUserId
+  if (!referee || typeof referee !== 'object') return null
+  const id = readOptionalString(referee._id)
+  if (!id) return null
+  return {
+    _id: id,
+    email: readOptionalString(referee.email) ?? '',
+    name: readOptionalString(referee.name),
+    firstName: readOptionalString(referee.firstName),
+    lastName: readOptionalString(referee.lastName),
+  }
+}
+
 export async function assignMatchReferee(matchId: string, refereeUserId: string, token: string) {
-  const response = await apiRequest<{ message: string; match: Match }>(
+  await apiRequest<{ message: string; availability?: unknown; match?: Match }>(
     `/matches/${encodeURIComponent(matchId)}/referee-assignment`,
     { method: 'POST', body: JSON.stringify({ refereeUserId }) },
     token,
   )
-  return response.match
 }
 
 export async function assignMatchToCourt(matchId: string, courtId: string, token: string) {

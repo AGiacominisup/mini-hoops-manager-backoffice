@@ -11,6 +11,8 @@ import {
   getTournamentRegistrations,
   getMatchReport,
   getMatchRefereeAvailability,
+  getMatchRefereeUser,
+  getMatchRefereeUserId,
   assignMatchReferee,
   removeTournamentRegistrations,
   startTournament,
@@ -27,6 +29,7 @@ import { attendanceStatusKeys } from '../utils/attendance-status'
 import { matchPhaseKeys, matchStatusKeys } from '../utils/match-status'
 import { findDuplicateIdentityKeys, getPlayerIdentity, type PlayerIdentity } from '../utils/player-identity'
 import { formatPlayerLabel } from '../utils/player-name'
+import { formatRefereeName } from '../utils/referee-name'
 import { tournamentStatusKeys } from '../utils/tournament-status'
 import { translate, type TranslationKey } from '../utils/translations'
 import './workspace-pages.css'
@@ -276,13 +279,50 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
     setSelectedCourtId('')
   }
 
+  function toAssignedReferee(candidate: RefereeAvailability): RefereeAvailability {
+    return {
+      refereeUserId: candidate.refereeUserId,
+      email: candidate.email,
+      name: candidate.name,
+      firstName: candidate.firstName,
+      lastName: candidate.lastName,
+      status: 'selected',
+    }
+  }
+
+  function resolveAssignedReferee(
+    match: Match,
+    candidates: RefereeAvailability[] = [],
+  ): RefereeAvailability | null {
+    const assignedId = getMatchRefereeUserId(match)
+    if (!assignedId) return null
+
+    const fromCandidates = candidates.find((candidate) => candidate.refereeUserId === assignedId)
+    if (fromCandidates) return toAssignedReferee(fromCandidates)
+
+    const populated = getMatchRefereeUser(match)
+    if (populated) {
+      return {
+        refereeUserId: populated._id,
+        email: populated.email,
+        name: populated.name,
+        firstName: populated.firstName,
+        lastName: populated.lastName,
+        status: 'selected',
+      }
+    }
+
+    return { refereeUserId: assignedId, status: 'selected' }
+  }
+
   async function handleOpenMatchDrawer(match: Match) {
+    const assignedId = getMatchRefereeUserId(match)
+    const assignedReferee = resolveAssignedReferee(match)
     setMatchInDrawer(match)
     setMatchReport(null)
     setRefereeCandidates([])
-    const assignedReferee = typeof match.refereeUserId === 'object' && match.refereeUserId !== null ? match.refereeUserId : null
-    setSelectedRefereeId(assignedReferee?._id ?? (typeof match.refereeUserId === 'string' ? match.refereeUserId : ''))
-      setSelectedReferee(assignedReferee ? { refereeUserId: assignedReferee._id, email: assignedReferee.email, firstName: assignedReferee.firstName, lastName: assignedReferee.lastName } : null)
+    setSelectedRefereeId(assignedId)
+    setSelectedReferee(assignedReferee)
     setDrawerError('')
     setIsLoadingMatchReport(true)
     setIsLoadingReferees(true)
@@ -293,7 +333,13 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
       if (!(requestError instanceof ApiError && requestError.status === 404)) setDrawerError(translate('tournamentDetail.matchReportLoadError'))
     }).finally(() => setIsLoadingMatchReport(false))
     void getMatchRefereeAvailability(match._id, token).then((loadedCandidates) => {
-      setRefereeCandidates(loadedCandidates)
+      const pendingCandidates = loadedCandidates.filter((candidate) => candidate.status !== 'selected')
+      setRefereeCandidates(pendingCandidates)
+      const resolved = resolveAssignedReferee(match, loadedCandidates)
+      if (resolved) {
+        setSelectedRefereeId(resolved.refereeUserId)
+        setSelectedReferee(resolved)
+      }
     }).catch((requestError: unknown) => {
       if (requestError instanceof ApiError && requestError.status === 401) return onUnauthorized()
       setDrawerError(translate('tournamentDetail.refereeCandidatesLoadError'))
@@ -305,10 +351,25 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
     setDrawerError('')
     setIsAssigningReferee(true)
     try {
-      const updatedMatch = await assignMatchReferee(matchInDrawer._id, selectedRefereeId, token)
-      setSelectedReferee(refereeCandidates.find((candidate) => candidate.refereeUserId === selectedRefereeId) ?? null)
+      await assignMatchReferee(matchInDrawer._id, selectedRefereeId, token)
+      const assignedCandidate = refereeCandidates.find((candidate) => candidate.refereeUserId === selectedRefereeId)
+        ?? { refereeUserId: selectedRefereeId }
+      const assignedReferee = toAssignedReferee(assignedCandidate)
+      const updatedMatch: Match = {
+        ...matchInDrawer,
+        refereeUserId: {
+          _id: assignedReferee.refereeUserId,
+          email: assignedReferee.email ?? '',
+          name: assignedReferee.name,
+          firstName: assignedReferee.firstName,
+          lastName: assignedReferee.lastName,
+        },
+      }
+      setSelectedReferee(assignedReferee)
+      setSelectedRefereeId(assignedReferee.refereeUserId)
       setMatchInDrawer(updatedMatch)
       setMatches((currentMatches) => currentMatches.map((match) => match._id === updatedMatch._id ? updatedMatch : match))
+      setRefereeCandidates((currentCandidates) => currentCandidates.filter((candidate) => candidate.refereeUserId !== assignedReferee.refereeUserId))
     } catch (requestError) {
       if (requestError instanceof ApiError && requestError.status === 401) return onUnauthorized()
       setDrawerError(translate('tournamentDetail.refereeAssignmentError'))
@@ -606,15 +667,26 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
 
           <section className="drawer-section">
             <h3>{translate('tournamentDetail.refereeAssignment')}</h3>
-            {selectedRefereeId ? <p className="selected-referee selected-referee--assigned">{translate('tournamentDetail.selectedReferee')}: <strong>{selectedReferee ? `${selectedReferee.firstName ?? ''} ${selectedReferee.lastName ?? ''}`.trim() || selectedReferee.email || selectedReferee.refereeUserId : selectedRefereeId}</strong>{selectedReferee?.email && ` (${selectedReferee.email})`}</p> : isLoadingReferees ? <p>{translate('common.loading')}</p> : <>
-              <label className="drawer-field-label" htmlFor="referee-select">{translate('tournamentDetail.refereeCandidates')}</label>
-              <select id="referee-select" className="drawer-select" value={selectedRefereeId} onChange={(event) => setSelectedRefereeId(event.target.value)} disabled={isAssigningReferee}>
-                <option value="">{translate('tournamentDetail.selectReferee')}</option>
-                {refereeCandidates.map((candidate) => <option key={candidate.refereeUserId} value={candidate.refereeUserId}>{candidate.firstName || candidate.lastName ? `${candidate.firstName ?? ''} ${candidate.lastName ?? ''}`.trim() : candidate.email ?? candidate.refereeUserId}</option>)}
-              </select>
-              {refereeCandidates.length === 0 && <p>{translate('tournamentDetail.refereeCandidatesEmpty')}</p>}
-              <button className="primary-action" type="button" onClick={() => void handleAssignReferee()} disabled={isAssigningReferee || !selectedRefereeId}>{translate(isAssigningReferee ? 'tournamentDetail.refereeAssigning' : 'tournamentDetail.assignReferee')}</button>
-            </>}
+            {selectedRefereeId ? (
+              <p className="selected-referee selected-referee--assigned">
+                {translate('tournamentDetail.selectedReferee')}: <strong>{formatRefereeName(selectedReferee)}</strong>
+                {selectedReferee?.email && selectedReferee.name ? ` (${selectedReferee.email})` : ''}
+              </p>
+            ) : isLoadingReferees ? (
+              <p>{translate('common.loading')}</p>
+            ) : (
+              <>
+                <label className="drawer-field-label" htmlFor="referee-select">{translate('tournamentDetail.refereeCandidates')}</label>
+                <select id="referee-select" className="drawer-select" value={selectedRefereeId} onChange={(event) => setSelectedRefereeId(event.target.value)} disabled={isAssigningReferee}>
+                  <option value="">{translate('tournamentDetail.selectReferee')}</option>
+                  {refereeCandidates.map((candidate) => (
+                    <option key={candidate.refereeUserId} value={candidate.refereeUserId}>{formatRefereeName(candidate)}</option>
+                  ))}
+                </select>
+                {refereeCandidates.length === 0 && <p>{translate('tournamentDetail.refereeCandidatesEmpty')}</p>}
+                <button className="primary-action" type="button" onClick={() => void handleAssignReferee()} disabled={isAssigningReferee || !selectedRefereeId}>{translate(isAssigningReferee ? 'tournamentDetail.refereeAssigning' : 'tournamentDetail.assignReferee')}</button>
+              </>
+            )}
           </section>
 
           <section className="drawer-section">
