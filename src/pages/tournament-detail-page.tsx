@@ -56,8 +56,8 @@ function formatDate(value?: string) {
   return value ? dateFormatter.format(new Date(value)) : translate('common.notAvailable')
 }
 
-function getPointsDifference(registration: Registration) {
-  return registration.pointsScored - registration.pointsAllowed
+function getRegistrationLosses(registration: Registration) {
+  return Math.max(0, registration.matchesPlayed - registration.wins)
 }
 
 export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBack, onEdit }: TournamentDetailPageProps) {
@@ -144,8 +144,9 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
   const standingsRows = useMemo(() => [...rosterRows].sort((first, second) =>
     second.registration.rankingPoints - first.registration.rankingPoints
     || second.registration.wins - first.registration.wins
-    || getPointsDifference(second.registration) - getPointsDifference(first.registration)
-    || second.registration.pointsScored - first.registration.pointsScored), [rosterRows])
+    || second.registration.pointsMade - first.registration.pointsMade
+    || second.registration.assists - first.registration.assists
+    || first.registration.fouls - second.registration.fouls), [rosterRows])
 
   const sortedMatches = useMemo(() => [...matches].sort((first, second) =>
     (first.queuePosition ?? Number.MAX_SAFE_INTEGER) - (second.queuePosition ?? Number.MAX_SAFE_INTEGER)
@@ -529,22 +530,26 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
             <thead><tr>
               <th>{translate('tournamentDetail.position')}</th>
               <th>{translate('tournamentDetail.player')}</th>
-              <th>{translate('tournamentDetail.matchesPlayed')}</th>
+              <th>{translate('tournamentDetail.overall')}</th>
               <th>{translate('tournamentDetail.wins')}</th>
-              <th>{translate('tournamentDetail.pointsScored')}</th>
-              <th>{translate('tournamentDetail.pointsAllowed')}</th>
-              <th>{translate('tournamentDetail.pointsDifference')}</th>
-              <th>{translate('tournamentDetail.rankingPoints')}</th>
+              <th>{translate('tournamentDetail.losses')}</th>
+              <th>{translate('tournamentDetail.pointsMade')}</th>
+              <th>{translate('tournamentDetail.assists')}</th>
+              <th>{translate('tournamentDetail.fouls')}</th>
+              <th>{translate('tournamentDetail.mvpAwards')}</th>
+              <th>{translate('tournamentDetail.fairPlayAwards')}</th>
             </tr></thead>
             <tbody>{standingsRows.map((row, index) => <tr key={row.registration._id}>
               <td>{index + 1}</td>
               <td><strong>{row.label}</strong></td>
-              <td>{row.registration.matchesPlayed}</td>
-              <td>{row.registration.wins}</td>
-              <td>{row.registration.pointsScored}</td>
-              <td>{row.registration.pointsAllowed}</td>
-              <td>{getPointsDifference(row.registration) > 0 ? `+${getPointsDifference(row.registration)}` : getPointsDifference(row.registration)}</td>
               <td><strong>{row.registration.rankingPoints}</strong></td>
+              <td>{row.registration.wins}</td>
+              <td>{getRegistrationLosses(row.registration)}</td>
+              <td>{row.registration.pointsMade}</td>
+              <td>{row.registration.assists}</td>
+              <td>{row.registration.fouls}</td>
+              <td>{row.registration.mvpAwards}</td>
+              <td>{row.registration.fairPlayAwards}</td>
             </tr>)}</tbody>
           </table></div>}
       </section>
