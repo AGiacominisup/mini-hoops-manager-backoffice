@@ -1,14 +1,16 @@
-import { ArrowLeft, Eye, Pencil, Play, Trash2, UserPlus, X, Zap } from 'lucide-react'
+import { ArrowLeft, Eye, Flag, Pencil, Play, Trash2, UserPlus, X, Zap } from 'lucide-react'
 import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import {
   addTournamentRegistrations,
   ApiError,
   assignMatchToCourt,
+  generateFinals,
   getAvailablePlayers,
   getPlayers,
   getTournament,
   getTournamentMatches,
   getTournamentRegistrations,
+  getTournamentSetup,
   getMatchReport,
   getMatch,
   getMatchRefereeAvailability,
@@ -17,6 +19,7 @@ import {
   assignMatchReferee,
   removeTournamentRegistrations,
   startTournament,
+  type FinalsReadiness,
   type Match,
   type MatchReport,
   type RefereeAvailability,
@@ -49,6 +52,14 @@ interface RosterRow {
   identity: PlayerIdentity | null
 }
 
+type PhaseTab = 'qualification' | 'finals'
+
+function sortMatchesByQueue(matches: Match[]) {
+  return [...matches].sort((first, second) =>
+    (first.queuePosition ?? Number.MAX_SAFE_INTEGER) - (second.queuePosition ?? Number.MAX_SAFE_INTEGER)
+    || (first.scheduledAt ?? '').localeCompare(second.scheduledAt ?? ''))
+}
+
 const dateFormatter = new Intl.DateTimeFormat('it-IT', { day: '2-digit', month: 'long', year: 'numeric' })
 const dateTimeFormatter = new Intl.DateTimeFormat('it-IT', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
@@ -77,6 +88,10 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
   const [isRemoving, setIsRemoving] = useState(false)
   const [isStartDialogOpen, setIsStartDialogOpen] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
+  const [isGenerateFinalsDialogOpen, setIsGenerateFinalsDialogOpen] = useState(false)
+  const [isGeneratingFinals, setIsGeneratingFinals] = useState(false)
+  const [finalsReadiness, setFinalsReadiness] = useState<FinalsReadiness | null>(null)
+  const [activePhaseTab, setActivePhaseTab] = useState<PhaseTab>('qualification')
   const [matchToAssign, setMatchToAssign] = useState<Match | null>(null)
   const [selectedCourtId, setSelectedCourtId] = useState<string>('')
   const [isAssigning, setIsAssigning] = useState(false)
@@ -98,11 +113,18 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
       getTournamentRegistrations(tournamentId, token, controller.signal),
       getPlayers(token, controller.signal),
       getTournamentMatches(tournamentId, token, controller.signal),
-    ]).then(([loadedTournament, loadedRegistrations, loadedPlayers, loadedMatches]) => {
-      setTournament(loadedTournament)
+      getTournamentSetup(tournamentId, token, controller.signal),
+    ]).then(([loadedTournament, loadedRegistrations, loadedPlayers, loadedMatches, loadedSetup]) => {
+      const nextTournament = loadedSetup.tournament ?? loadedTournament
+      setTournament(nextTournament)
       setRegistrations(loadedRegistrations)
       setPlayers(loadedPlayers)
       setMatches(loadedMatches)
+      setFinalsReadiness(loadedSetup.finalsReadiness)
+      const hasGeneratedFinals = (nextTournament.finals?.totalMatches ?? 0) > 0
+        || nextTournament.status === 'finals'
+        || nextTournament.status === 'completed'
+      setActivePhaseTab(hasGeneratedFinals ? 'finals' : 'qualification')
     }).catch((requestError: unknown) => {
       if (requestError instanceof DOMException && requestError.name === 'AbortError') return
       if (requestError instanceof ApiError && requestError.status === 401) return handleUnauthorized()
@@ -115,6 +137,7 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
 
   const playersById = useMemo(() => new Map(players.map((player) => [player._id, player])), [players])
   const courtNamesById = useMemo(() => new Map((tournament?.courts ?? []).map((court) => [court._id, court.name])), [tournament])
+  const finalGroupNamesById = useMemo(() => new Map((tournament?.finalGroups ?? []).map((group) => [group._id, group.themeName])), [tournament])
 
   const rosterRows = useMemo<RosterRow[]>(() => registrations
     .map((registration) => {
@@ -141,6 +164,15 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
     return owners
   }, [availablePlayers, selectedPlayerIds])
 
+  const qualificationMatches = useMemo(
+    () => sortMatchesByQueue(matches.filter((match) => match.phase === 'qualification')),
+    [matches],
+  )
+  const finalMatches = useMemo(
+    () => sortMatchesByQueue(matches.filter((match) => match.phase === 'final')),
+    [matches],
+  )
+
   const standingsRows = useMemo(() => [...rosterRows].sort((first, second) =>
     second.registration.rankingPoints - first.registration.rankingPoints
     || second.registration.wins - first.registration.wins
@@ -148,16 +180,31 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
     || second.registration.assists - first.registration.assists
     || first.registration.fouls - second.registration.fouls), [rosterRows])
 
-  const sortedMatches = useMemo(() => [...matches].sort((first, second) =>
-    (first.queuePosition ?? Number.MAX_SAFE_INTEGER) - (second.queuePosition ?? Number.MAX_SAFE_INTEGER)
-    || (first.scheduledAt ?? '').localeCompare(second.scheduledAt ?? '')), [matches])
+  const finalsStandingsRows = useMemo(() => [...rosterRows].sort((first, second) => {
+    const firstRank = first.registration.qualificationRank
+    const secondRank = second.registration.qualificationRank
+    if (firstRank != null && secondRank != null && firstRank !== secondRank) return firstRank - secondRank
+    if (firstRank != null && secondRank == null) return -1
+    if (firstRank == null && secondRank != null) return 1
+    return second.registration.rankingPoints - first.registration.rankingPoints
+      || second.registration.wins - first.registration.wins
+      || second.registration.pointsMade - first.registration.pointsMade
+  }), [rosterRows])
 
   const isDraft = tournament?.status === 'draft'
+  const isQualification = tournament?.status === 'qualification'
+  const hasGeneratedFinals = (tournament?.finals?.totalMatches ?? 0) > 0
+    || tournament?.status === 'finals'
+    || tournament?.status === 'completed'
   const activeRegistrations = registrations.filter((registration) => registration.attendanceStatus !== 'withdrawn')
   const checkedInRegistrations = registrations.filter((registration) => registration.attendanceStatus === 'checked_in')
   const hasEnabledCourt = (tournament?.courts ?? []).some((court) => court.enabled !== false)
   const canStart = Boolean(tournament) && isDraft && hasEnabledCourt && activeRegistrations.length >= (tournament?.configuration.playersPerMatch ?? 6)
   const hasPlayedMatches = registrations.some((registration) => registration.matchesPlayed > 0)
+  const allQualificationMatchesCompleted = qualificationMatches.length > 0
+    && qualificationMatches.every((match) => match.status === 'completed')
+  const canGenerateFinals = Boolean(isQualification && finalsReadiness?.ready)
+  const showFinalsBlockedHint = Boolean(isQualification && !finalsReadiness?.ready && allQualificationMatchesCompleted)
 
   function getMatchPlayerLabel(matchPlayer: MatchPlayer) {
     return rosterLabelsByRegistrationId.get(matchPlayer.registrationId)
@@ -255,20 +302,60 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
     setIsStarting(true)
     try {
       setTournament(await startTournament(tournamentId, token))
-      const [nextRegistrations, nextMatches] = await Promise.all([
+      const [nextRegistrations, nextMatches, nextSetup] = await Promise.all([
         getTournamentRegistrations(tournamentId, token),
         getTournamentMatches(tournamentId, token),
+        getTournamentSetup(tournamentId, token),
       ])
       setRegistrations(nextRegistrations)
       setMatches(nextMatches)
+      setFinalsReadiness(nextSetup.finalsReadiness)
+      setTournament(nextSetup.tournament)
       setIsStartDialogOpen(false)
       setIsSelectionOpen(false)
+      setActivePhaseTab('qualification')
     } catch (requestError) {
       if (requestError instanceof ApiError && requestError.status === 401) return onUnauthorized()
       setError(translate(requestError instanceof ApiError && requestError.status === 409 ? 'tournamentDetail.startConflict' : 'tournamentDetail.startError'))
       setIsStartDialogOpen(false)
     } finally {
       setIsStarting(false)
+    }
+  }
+
+  async function handleConfirmGenerateFinals() {
+    setError('')
+    setIsGeneratingFinals(true)
+    try {
+      const result = await generateFinals(tournamentId, token)
+      const [nextRegistrations, nextMatches, nextSetup] = await Promise.all([
+        getTournamentRegistrations(tournamentId, token),
+        getTournamentMatches(tournamentId, token),
+        getTournamentSetup(tournamentId, token),
+      ])
+      setTournament(nextSetup.tournament ?? result.tournament)
+      setMatches(nextMatches.length > 0 ? nextMatches : result.matches)
+      setRegistrations(nextRegistrations)
+      setFinalsReadiness(nextSetup.finalsReadiness)
+      setIsGenerateFinalsDialogOpen(false)
+      setActivePhaseTab('finals')
+    } catch (requestError) {
+      if (requestError instanceof ApiError && requestError.status === 401) return onUnauthorized()
+      if (requestError instanceof ApiError && requestError.status === 409) {
+        setError(requestError.message || translate('tournamentDetail.generateFinalsConflict'))
+      } else {
+        setError(translate('tournamentDetail.generateFinalsError'))
+      }
+      setIsGenerateFinalsDialogOpen(false)
+      try {
+        const nextSetup = await getTournamentSetup(tournamentId, token)
+        setFinalsReadiness(nextSetup.finalsReadiness)
+        setTournament(nextSetup.tournament)
+      } catch {
+        // Keep the previous readiness state if the refresh fails.
+      }
+    } finally {
+      setIsGeneratingFinals(false)
     }
   }
 
@@ -455,6 +542,7 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
           <div className="detail-fact"><span>{translate('tournamentDetail.startDate')}</span><strong>{formatDate(tournament.startDate)}</strong></div>
           <div className="detail-fact"><span>{translate('tournamentDetail.endDate')}</span><strong>{formatDate(tournament.endDate)}</strong></div>
           <div className="detail-fact"><span>{translate('tournamentDetail.generatedAt')}</span><strong>{tournament.qualification.generatedAt ? dateTimeFormatter.format(new Date(tournament.qualification.generatedAt)) : translate('common.notAvailable')}</strong></div>
+          <div className="detail-fact"><span>{translate('tournamentDetail.finalsGeneratedAt')}</span><strong>{tournament.finals?.generatedAt ? dateTimeFormatter.format(new Date(tournament.finals.generatedAt)) : translate('common.notAvailable')}</strong></div>
         </div>
 
         <div className="detail-subsection">
@@ -469,7 +557,54 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
             <div className="chip-list">{tournament.finalGroups.map((group) => <span className="chip" key={group._id}>{group.themeName}<span>{translate('tournamentForm.groupLevel')} {group.level}</span></span>)}</div>}
         </div>
       </section>
+    </div>
 
+    {canGenerateFinals && <div className="finals-banner finals-banner--ready">
+      <div>
+        <h2>{translate('tournamentDetail.generateFinalsReadyTitle')}</h2>
+        <p>{translate('tournamentDetail.generateFinalsReadyDescription')}</p>
+      </div>
+      <div className="finals-banner-actions">
+        <button className="primary-action" type="button" onClick={() => setIsGenerateFinalsDialogOpen(true)} disabled={isGeneratingFinals}>
+          <Flag size={17} />{translate(isGeneratingFinals ? 'tournamentDetail.generatingFinals' : 'tournamentDetail.generateFinals')}
+        </button>
+      </div>
+    </div>}
+
+    {showFinalsBlockedHint && <div className="finals-banner finals-banner--blocked">
+      <div>
+        <h2>{translate('tournamentDetail.generateFinalsBlockedTitle')}</h2>
+        <p>{translate('tournamentDetail.generateFinalsBlockedDescription')}</p>
+        {(finalsReadiness?.blockers.length ?? 0) > 0 && <ul className="finals-banner-blockers">
+          {finalsReadiness?.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+        </ul>}
+      </div>
+    </div>}
+
+    <div className="phase-tabs" role="tablist" aria-label={translate('tournamentDetail.eyebrow')}>
+      <button
+        className={activePhaseTab === 'qualification' ? 'phase-tab phase-tab--active' : 'phase-tab'}
+        type="button"
+        role="tab"
+        aria-selected={activePhaseTab === 'qualification'}
+        onClick={() => setActivePhaseTab('qualification')}
+      >
+        {translate('tournamentDetail.tabQualification')}
+      </button>
+      <button
+        className={activePhaseTab === 'finals' ? 'phase-tab phase-tab--active' : 'phase-tab'}
+        type="button"
+        role="tab"
+        aria-selected={activePhaseTab === 'finals'}
+        disabled={!hasGeneratedFinals}
+        title={!hasGeneratedFinals ? translate('tournamentDetail.finalsTabDisabled') : undefined}
+        onClick={() => hasGeneratedFinals && setActivePhaseTab('finals')}
+      >
+        {translate('tournamentDetail.tabFinals')}
+      </button>
+    </div>
+
+    {activePhaseTab === 'qualification' && <div className="detail-sections phase-tab-panel" role="tabpanel">
       <section className="form-section">
         <div className="form-section-heading">
           <div><h2>{translate('tournamentDetail.roster')}</h2><p>{translate(isDraft ? 'tournamentDetail.rosterDescription' : 'tournamentDetail.rosterLocked')}</p></div>
@@ -556,11 +691,10 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
 
       <section className="form-section">
         <div className="form-section-heading"><div><h2>{translate('tournamentDetail.matches')}</h2><p>{translate('tournamentDetail.matchesDescription')}</p></div></div>
-        {sortedMatches.length === 0 ? <div className="page-state page-state--embedded"><strong>{translate('tournamentDetail.matchesEmpty')}</strong><p>{translate('tournamentDetail.matchesEmptyDescription')}</p></div> :
+        {qualificationMatches.length === 0 ? <div className="page-state page-state--embedded"><strong>{translate('tournamentDetail.matchesEmpty')}</strong><p>{translate('tournamentDetail.matchesEmptyDescription')}</p></div> :
           <div className="data-table-wrap data-table-wrap--embedded"><table className="data-table">
             <thead><tr>
               <th>{translate('tournamentDetail.queuePosition')}</th>
-              <th>{translate('tournamentDetail.phase')}</th>
               <th>{translate('tournamentDetail.teamA')}</th>
               <th>{translate('tournamentDetail.score')}</th>
               <th>{translate('tournamentDetail.teamB')}</th>
@@ -568,7 +702,7 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
               <th>{translate('tournamentDetail.statusLabel')}</th>
               <th className="actions-column">{translate('tournaments.actions')}</th>
             </tr></thead>
-            <tbody>{sortedMatches.map((match) => {
+            <tbody>{qualificationMatches.map((match) => {
               const canAssign = match.status === 'queued' && !match.courtId && match.availability?.playable === true
               const isBusy = match.status === 'queued' && match.availability?.playable === false
               const busyPlayers = isBusy ? (match.availability?.busyRegistrationIds ?? [])
@@ -577,7 +711,6 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
                 : []
               return <tr key={match._id}>
                 <td>{match.queuePosition ?? translate('common.notAvailable')}</td>
-                <td>{translate(matchPhaseKeys[match.phase])}</td>
                 <td><div className="team-cell">{getTeamPlayers(match, 'A').map((matchPlayer) => <span key={matchPlayer.registrationId}>{getMatchPlayerLabel(matchPlayer)}</span>)}</div></td>
                 <td><span className="score-cell">{match.scoreA} - {match.scoreB}</span></td>
                 <td><div className="team-cell">{getTeamPlayers(match, 'B').map((matchPlayer) => <span key={matchPlayer.registrationId}>{getMatchPlayerLabel(matchPlayer)}</span>)}</div></td>
@@ -595,7 +728,88 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
             })}</tbody>
           </table></div>}
       </section>
-    </div>
+    </div>}
+
+    {activePhaseTab === 'finals' && <div className="detail-sections phase-tab-panel" role="tabpanel">
+      {!hasGeneratedFinals ? <div className="page-state page-state--embedded"><strong>{translate('tournamentDetail.finalsEmpty')}</strong><p>{translate('tournamentDetail.finalsEmptyDescription')}</p></div> : <>
+        <section className="form-section">
+          <div className="form-section-heading"><div><h2>{translate('tournamentDetail.standings')}</h2><p>{translate('tournamentDetail.standingsFinalsDescription')}</p></div></div>
+          {finalsStandingsRows.length === 0 ? <div className="page-state page-state--embedded"><strong>{translate('tournamentDetail.standingsEmpty')}</strong><p>{translate('tournamentDetail.standingsEmptyDescription')}</p></div> :
+            <div className="data-table-wrap data-table-wrap--embedded"><table className="data-table">
+              <thead><tr>
+                <th>{translate('tournamentDetail.position')}</th>
+                <th>{translate('tournamentDetail.qualificationRank')}</th>
+                <th>{translate('tournamentDetail.player')}</th>
+                <th>{translate('tournamentDetail.finalGroup')}</th>
+                <th>{translate('tournamentDetail.overall')}</th>
+                <th>{translate('tournamentDetail.wins')}</th>
+                <th>{translate('tournamentDetail.losses')}</th>
+                <th>{translate('tournamentDetail.pointsMade')}</th>
+                <th>{translate('tournamentDetail.assists')}</th>
+                <th>{translate('tournamentDetail.fouls')}</th>
+                <th>{translate('tournamentDetail.mvpAwards')}</th>
+                <th>{translate('tournamentDetail.fairPlayAwards')}</th>
+              </tr></thead>
+              <tbody>{finalsStandingsRows.map((row, index) => <tr key={row.registration._id}>
+                <td>{index + 1}</td>
+                <td>{row.registration.qualificationRank ?? translate('common.notAvailable')}</td>
+                <td><strong>{row.label}</strong></td>
+                <td>{(row.registration.finalGroupId && finalGroupNamesById.get(row.registration.finalGroupId)) ?? translate('common.notAvailable')}</td>
+                <td><strong>{row.registration.rankingPoints}</strong></td>
+                <td>{row.registration.wins}</td>
+                <td>{getRegistrationLosses(row.registration)}</td>
+                <td>{row.registration.pointsMade}</td>
+                <td>{row.registration.assists}</td>
+                <td>{row.registration.fouls}</td>
+                <td>{row.registration.mvpAwards}</td>
+                <td>{row.registration.fairPlayAwards}</td>
+              </tr>)}</tbody>
+            </table></div>}
+        </section>
+
+        <section className="form-section">
+          <div className="form-section-heading"><div><h2>{translate('tournamentDetail.matches')}</h2><p>{translate('tournamentDetail.matchesDescription')}</p></div></div>
+          {finalMatches.length === 0 ? <div className="page-state page-state--embedded"><strong>{translate('tournamentDetail.finalMatchesEmpty')}</strong><p>{translate('tournamentDetail.finalMatchesEmptyDescription')}</p></div> :
+            <div className="data-table-wrap data-table-wrap--embedded"><table className="data-table">
+              <thead><tr>
+                <th>{translate('tournamentDetail.queuePosition')}</th>
+                <th>{translate('tournamentDetail.finalGroup')}</th>
+                <th>{translate('tournamentDetail.teamA')}</th>
+                <th>{translate('tournamentDetail.score')}</th>
+                <th>{translate('tournamentDetail.teamB')}</th>
+                <th>{translate('tournamentDetail.court')}</th>
+                <th>{translate('tournamentDetail.statusLabel')}</th>
+                <th className="actions-column">{translate('tournaments.actions')}</th>
+              </tr></thead>
+              <tbody>{finalMatches.map((match) => {
+                const canAssign = match.status === 'queued' && !match.courtId && match.availability?.playable === true
+                const isBusy = match.status === 'queued' && match.availability?.playable === false
+                const busyPlayers = isBusy ? (match.availability?.busyRegistrationIds ?? [])
+                  .map((regId) => rosterLabelsByRegistrationId.get(regId))
+                  .filter((name): name is string => Boolean(name))
+                  : []
+                return <tr key={match._id}>
+                  <td>{match.queuePosition ?? translate('common.notAvailable')}</td>
+                  <td>{(match.finalGroupId && finalGroupNamesById.get(match.finalGroupId)) ?? translate('common.notAvailable')}</td>
+                  <td><div className="team-cell">{getTeamPlayers(match, 'A').map((matchPlayer) => <span key={matchPlayer.registrationId}>{getMatchPlayerLabel(matchPlayer)}</span>)}</div></td>
+                  <td><span className="score-cell">{match.scoreA} - {match.scoreB}</span></td>
+                  <td><div className="team-cell">{getTeamPlayers(match, 'B').map((matchPlayer) => <span key={matchPlayer.registrationId}>{getMatchPlayerLabel(matchPlayer)}</span>)}</div></td>
+                  <td>{(match.courtId && courtNamesById.get(match.courtId)) ?? translate('common.notAvailable')}</td>
+                  <td>
+                    <span className={`status-badge status-badge--${match.status}`}>{translate(matchStatusKeys[match.status])}</span>
+                    {isBusy && <span className="status-badge status-badge--conflict" title={`${translate('tournamentDetail.assignBusyPlayers')} ${busyPlayers.join(', ')}`}>{translate('tournamentDetail.assignUnavailable')}</span>}
+                  </td>
+                  <td className="actions-column"><div className="row-actions">
+                    <button className="icon-action" type="button" onClick={() => void handleOpenMatchDrawer(match)} title={translate('tournamentDetail.openMatch')} aria-label={translate('tournamentDetail.openMatch')}><Eye size={16} /></button>
+                    {canAssign && <button className="icon-action" type="button" onClick={() => handleOpenAssignDialog(match)} title={translate('tournamentDetail.assignCourt')} aria-label={translate('tournamentDetail.assignCourt')}><Zap size={16} /></button>}
+                    {!canAssign && match.status === 'queued' && !match.courtId && <button className="icon-action" type="button" disabled title={`${translate('tournamentDetail.assignUnavailableReason')}: ${busyPlayers.join(', ')}`} aria-label={translate('tournamentDetail.assignUnavailable')}><Zap size={16} /></button>}
+                  </div></td>
+                </tr>
+              })}</tbody>
+            </table></div>}
+        </section>
+      </>}
+    </div>}
 
     {registrationToRemove && <ConfirmDialog
       title={translate('tournamentDetail.removeTitle')}
@@ -618,6 +832,18 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
       isConfirming={isStarting}
       onConfirm={handleConfirmStart}
       onCancel={() => setIsStartDialogOpen(false)}
+    />}
+
+    {isGenerateFinalsDialogOpen && <ConfirmDialog
+      title={translate('tournamentDetail.generateFinalsTitle')}
+      description={translate('tournamentDetail.generateFinalsDescription')}
+      subject={tournament.name}
+      confirmLabel={translate(isGeneratingFinals ? 'tournamentDetail.generatingFinals' : 'tournamentDetail.generateFinalsConfirm')}
+      cancelLabel={translate('tournamentDetail.generateFinalsCancel')}
+      confirmVariant="primary"
+      isConfirming={isGeneratingFinals}
+      onConfirm={handleConfirmGenerateFinals}
+      onCancel={() => setIsGenerateFinalsDialogOpen(false)}
     />}
 
     {matchToAssign && <div className="confirm-dialog-backdrop" onClick={() => !isAssigning && setMatchToAssign(null)}>

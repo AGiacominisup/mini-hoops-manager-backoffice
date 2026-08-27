@@ -38,6 +38,10 @@ export interface Tournament {
     generatedAt?: string
     totalMatches: number
   }
+  finals?: {
+    generatedAt?: string
+    totalMatches: number
+  }
   courts: Array<{ _id: string; name: string; enabled?: boolean; displayOrder?: number }>
   finalGroups: Array<{ _id: string; themeName: string; level: number }>
   createdAt: string
@@ -122,6 +126,7 @@ export interface Registration {
   mvpAwards: number
   fairPlayAwards: number
   finalGroupId: string | null
+  qualificationRank?: number | null
   attendanceStatus: AttendanceStatus
   checkedInAt: string | null
   createdAt: string
@@ -167,6 +172,13 @@ interface ApiErrorResponse {
   errors?: Record<string, string[]>
 }
 
+export interface FinalsReadiness {
+  ready: boolean
+  blockers: string[]
+  requiredFinalGroups: number
+  checkedIn: number
+}
+
 export interface TournamentSetup {
   tournament: Tournament
   attendance: {
@@ -179,6 +191,7 @@ export interface TournamentSetup {
     ready: boolean
     blockers: string[]
   }
+  finalsReadiness: FinalsReadiness
 }
 
 export interface QualificationMetrics {
@@ -396,6 +409,14 @@ export async function startTournament(tournamentId: string, token: string) {
     token,
   )
   return response.tournament
+}
+
+export async function generateFinals(tournamentId: string, token: string) {
+  return apiRequest<{ message: string; tournament: Tournament; matches: Match[]; idempotent: boolean }>(
+    `/tournaments/${encodeURIComponent(tournamentId)}/finals/generate`,
+    { method: 'POST', body: JSON.stringify({}) },
+    token,
+  )
 }
 
 export async function getTournamentRegistrations(tournamentId: string, token: string, signal?: AbortSignal) {
