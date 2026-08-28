@@ -18,9 +18,9 @@ function normalizeName(value: string) {
  * A player is identified inside a tournament by the jersey number when available,
  * otherwise by the name. Players without either one cannot be registered.
  */
-export function getPlayerIdentity(player?: IdentifiablePlayer, fallbackJerseyNumber?: number): PlayerIdentity | null {
-  const jerseyNumber = player?.jerseyNumber ?? fallbackJerseyNumber
-  if (jerseyNumber !== undefined) return { kind: 'jersey', key: `jersey:${jerseyNumber}`, label: `#${jerseyNumber}` }
+export function getPlayerIdentity(player?: IdentifiablePlayer, fallbackJerseyNumber?: string): PlayerIdentity | null {
+  const jerseyNumber = player?.jerseyNumber || fallbackJerseyNumber
+  if (jerseyNumber) return { kind: 'jersey', key: `jersey:${jerseyNumber}`, label: `#${jerseyNumber}` }
 
   const name = [player?.firstName, player?.lastName].filter(Boolean).join(' ')
   return name ? { kind: 'name', key: `name:${normalizeName(name)}`, label: name } : null

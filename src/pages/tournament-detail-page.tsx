@@ -29,6 +29,7 @@ import {
   type Tournament,
 } from '../api/api-client'
 import { ConfirmDialog } from '../components/confirm-dialog'
+import { FinalMatchStats } from '../components/final-match-stats'
 import { attendanceStatusKeys } from '../utils/attendance-status'
 import { matchPhaseKeys, matchStatusKeys } from '../utils/match-status'
 import { findDuplicateIdentityKeys, getPlayerIdentity, type PlayerIdentity } from '../utils/player-identity'
@@ -104,6 +105,8 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
   const [isLoadingReferees, setIsLoadingReferees] = useState(false)
   const [isAssigningReferee, setIsAssigningReferee] = useState(false)
   const [drawerError, setDrawerError] = useState('')
+  const [finalReportsByMatchId, setFinalReportsByMatchId] = useState<Record<string, MatchReport>>({})
+  const [isLoadingFinalReports, setIsLoadingFinalReports] = useState(false)
   const handleUnauthorized = useEffectEvent(onUnauthorized)
 
   useEffect(() => {
@@ -180,16 +183,14 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
     || second.registration.assists - first.registration.assists
     || first.registration.fouls - second.registration.fouls), [rosterRows])
 
-  const finalsStandingsRows = useMemo(() => [...rosterRows].sort((first, second) => {
-    const firstRank = first.registration.qualificationRank
-    const secondRank = second.registration.qualificationRank
-    if (firstRank != null && secondRank != null && firstRank !== secondRank) return firstRank - secondRank
-    if (firstRank != null && secondRank == null) return -1
-    if (firstRank == null && secondRank != null) return 1
-    return second.registration.rankingPoints - first.registration.rankingPoints
-      || second.registration.wins - first.registration.wins
-      || second.registration.pointsMade - first.registration.pointsMade
-  }), [rosterRows])
+  const completedFinalMatches = useMemo(
+    () => finalMatches.filter((match) => match.status === 'completed'),
+    [finalMatches],
+  )
+  const reportedFinalMatches = useMemo(
+    () => completedFinalMatches.filter((match) => finalReportsByMatchId[match._id]),
+    [completedFinalMatches, finalReportsByMatchId],
+  )
 
   const isDraft = tournament?.status === 'draft'
   const isQualification = tournament?.status === 'qualification'
@@ -205,11 +206,48 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
     && qualificationMatches.every((match) => match.status === 'completed')
   const canGenerateFinals = Boolean(isQualification && finalsReadiness?.ready)
   const showFinalsBlockedHint = Boolean(isQualification && !finalsReadiness?.ready && allQualificationMatchesCompleted)
+  const completedFinalMatchIds = completedFinalMatches.map((match) => match._id).join(',')
+
+  useEffect(() => {
+    if (!completedFinalMatchIds) {
+      setFinalReportsByMatchId({})
+      setIsLoadingFinalReports(false)
+      return
+    }
+
+    const controller = new AbortController()
+    const matchIds = completedFinalMatchIds.split(',')
+    setIsLoadingFinalReports(true)
+    Promise.all(matchIds.map(async (matchId) => {
+      try {
+        const report = await getMatchReport(matchId, token, controller.signal)
+        return [matchId, report] as const
+      } catch (requestError) {
+        if (requestError instanceof DOMException && requestError.name === 'AbortError') throw requestError
+        if (requestError instanceof ApiError && requestError.status === 401) {
+          handleUnauthorized()
+          return [matchId, null] as const
+        }
+        if (requestError instanceof ApiError && requestError.status === 404) return [matchId, null] as const
+        throw requestError
+      }
+    })).then((entries) => {
+      const nextReports: Record<string, MatchReport> = {}
+      for (const [matchId, report] of entries) {
+        if (report) nextReports[matchId] = report
+      }
+      setFinalReportsByMatchId(nextReports)
+    }).catch((requestError: unknown) => {
+      if (requestError instanceof DOMException && requestError.name === 'AbortError') return
+    }).finally(() => setIsLoadingFinalReports(false))
+
+    return () => controller.abort()
+  }, [completedFinalMatchIds, token])
 
   function getMatchPlayerLabel(matchPlayer: MatchPlayer) {
     return rosterLabelsByRegistrationId.get(matchPlayer.registrationId)
       ?? matchPlayer.name
-      ?? (matchPlayer.jerseyNumber === undefined ? translate('common.notAvailable') : `#${matchPlayer.jerseyNumber}`)
+      ?? (matchPlayer.jerseyNumber ? `#${matchPlayer.jerseyNumber}` : translate('common.notAvailable'))
   }
 
   function getTeamPlayers(match: Match, side: 'A' | 'B') {
@@ -415,6 +453,9 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
     setIsLoadingReferees(true)
     void getMatchReport(match._id, token).then((loadedReport) => {
       setMatchReport(loadedReport)
+      if (loadedReport && match.phase === 'final') {
+        setFinalReportsByMatchId((currentReports) => ({ ...currentReports, [match._id]: loadedReport }))
+      }
     }).catch((requestError: unknown) => {
       if (requestError instanceof ApiError && requestError.status === 401) return onUnauthorized()
       if (!(requestError instanceof ApiError && requestError.status === 404)) setDrawerError(translate('tournamentDetail.matchReportLoadError'))
@@ -733,41 +774,6 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
     {activePhaseTab === 'finals' && <div className="detail-sections phase-tab-panel" role="tabpanel">
       {!hasGeneratedFinals ? <div className="page-state page-state--embedded"><strong>{translate('tournamentDetail.finalsEmpty')}</strong><p>{translate('tournamentDetail.finalsEmptyDescription')}</p></div> : <>
         <section className="form-section">
-          <div className="form-section-heading"><div><h2>{translate('tournamentDetail.standings')}</h2><p>{translate('tournamentDetail.standingsFinalsDescription')}</p></div></div>
-          {finalsStandingsRows.length === 0 ? <div className="page-state page-state--embedded"><strong>{translate('tournamentDetail.standingsEmpty')}</strong><p>{translate('tournamentDetail.standingsEmptyDescription')}</p></div> :
-            <div className="data-table-wrap data-table-wrap--embedded"><table className="data-table">
-              <thead><tr>
-                <th>{translate('tournamentDetail.position')}</th>
-                <th>{translate('tournamentDetail.qualificationRank')}</th>
-                <th>{translate('tournamentDetail.player')}</th>
-                <th>{translate('tournamentDetail.finalGroup')}</th>
-                <th>{translate('tournamentDetail.overall')}</th>
-                <th>{translate('tournamentDetail.wins')}</th>
-                <th>{translate('tournamentDetail.losses')}</th>
-                <th>{translate('tournamentDetail.pointsMade')}</th>
-                <th>{translate('tournamentDetail.assists')}</th>
-                <th>{translate('tournamentDetail.fouls')}</th>
-                <th>{translate('tournamentDetail.mvpAwards')}</th>
-                <th>{translate('tournamentDetail.fairPlayAwards')}</th>
-              </tr></thead>
-              <tbody>{finalsStandingsRows.map((row, index) => <tr key={row.registration._id}>
-                <td>{index + 1}</td>
-                <td>{row.registration.qualificationRank ?? translate('common.notAvailable')}</td>
-                <td><strong>{row.label}</strong></td>
-                <td>{(row.registration.finalGroupId && finalGroupNamesById.get(row.registration.finalGroupId)) ?? translate('common.notAvailable')}</td>
-                <td><strong>{row.registration.rankingPoints}</strong></td>
-                <td>{row.registration.wins}</td>
-                <td>{getRegistrationLosses(row.registration)}</td>
-                <td>{row.registration.pointsMade}</td>
-                <td>{row.registration.assists}</td>
-                <td>{row.registration.fouls}</td>
-                <td>{row.registration.mvpAwards}</td>
-                <td>{row.registration.fairPlayAwards}</td>
-              </tr>)}</tbody>
-            </table></div>}
-        </section>
-
-        <section className="form-section">
           <div className="form-section-heading"><div><h2>{translate('tournamentDetail.matches')}</h2><p>{translate('tournamentDetail.matchesDescription')}</p></div></div>
           {finalMatches.length === 0 ? <div className="page-state page-state--embedded"><strong>{translate('tournamentDetail.finalMatchesEmpty')}</strong><p>{translate('tournamentDetail.finalMatchesEmptyDescription')}</p></div> :
             <div className="data-table-wrap data-table-wrap--embedded"><table className="data-table">
@@ -807,6 +813,27 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
                 </tr>
               })}</tbody>
             </table></div>}
+        </section>
+
+        <section className="form-section">
+          <div className="form-section-heading"><div><h2>{translate('tournamentDetail.finalStats')}</h2><p>{translate('tournamentDetail.finalStatsDescription')}</p></div></div>
+          {isLoadingFinalReports ? <p>{translate('common.loading')}</p> : reportedFinalMatches.length === 0 ? <div className="page-state page-state--embedded"><strong>{translate('tournamentDetail.finalStatsEmpty')}</strong><p>{translate('tournamentDetail.finalStatsEmptyDescription')}</p></div> :
+            <div className="final-stats-list">
+              {reportedFinalMatches.map((match) => {
+                const report = finalReportsByMatchId[match._id]
+                if (!report) return null
+                return (
+                  <FinalMatchStats
+                    key={match._id}
+                    match={match}
+                    report={report}
+                    groupName={(match.finalGroupId && finalGroupNamesById.get(match.finalGroupId)) ?? translate('common.notAvailable')}
+                    courtName={(match.courtId && courtNamesById.get(match.courtId)) ?? translate('common.notAvailable')}
+                    getPlayerLabel={(registrationId) => rosterLabelsByRegistrationId.get(registrationId) ?? translate('common.notAvailable')}
+                  />
+                )
+              })}
+            </div>}
         </section>
       </>}
     </div>}

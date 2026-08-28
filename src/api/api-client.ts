@@ -90,7 +90,7 @@ export interface Player {
   _id: string
   firstName?: string
   lastName?: string
-  jerseyNumber?: number
+  jerseyNumber?: string
   birthDate?: string
   guardianContact?: string
   skillRating?: number
@@ -101,7 +101,7 @@ export interface Player {
 export interface CreatePlayerPayload {
   firstName?: string
   lastName?: string
-  jerseyNumber?: number
+  jerseyNumber?: string
   birthDate?: string
   guardianContact?: string
   skillRating?: number
@@ -113,7 +113,7 @@ export interface Registration {
   _id: string
   tournamentId: string
   playerId: string
-  jerseyNumber?: number
+  jerseyNumber?: string
   skillRating?: number
   rankingPoints: number
   matchesPlayed: number
@@ -135,7 +135,7 @@ export interface Registration {
 
 export interface MatchPlayer {
   registrationId: string
-  jerseyNumber?: number
+  jerseyNumber?: string
   name?: string
   skillRating?: number
 }
@@ -245,6 +245,16 @@ export interface MatchReportSubmitRequest {
   }
 }
 
+export interface MatchReportPlayerLine {
+  registrationId: string
+  side: 'A' | 'B'
+  points: number
+  onePointers: number
+  twoPointers: number
+  assists: number
+  fouls: number
+}
+
 export interface MatchReport {
   _id: string
   matchId: string
@@ -259,6 +269,11 @@ export interface MatchReport {
   revision: number
   baskets?: Array<MatchReportBasketInput & { side: 'A' | 'B' }>
   fouls?: Array<MatchReportFoulInput & { side: 'A' | 'B' }>
+  boxScore?: MatchReportPlayerLine[]
+  awards?: {
+    mvpRegistrationId?: string | null
+    fairPlayRegistrationId?: string | null
+  }
   submittedBy?: { kind: 'referee_session' | 'user'; sessionId?: string; userId?: string }
 }
 
@@ -583,15 +598,6 @@ export async function assignMatchToCourt(matchId: string, courtId: string, token
 export async function assignNextMatch(tournamentId: string, courtId: string, token: string) {
   const response = await apiRequest<{ message: string; match: Match | null }>(
     `/tournaments/${encodeURIComponent(tournamentId)}/courts/${encodeURIComponent(courtId)}/assign-next`,
-    { method: 'POST', body: JSON.stringify({}) },
-    token,
-  )
-  return response.match
-}
-
-export async function startMatch(matchId: string, token: string) {
-  const response = await apiRequest<{ message: string; match: Match }>(
-    `/matches/${encodeURIComponent(matchId)}/start`,
     { method: 'POST', body: JSON.stringify({}) },
     token,
   )

@@ -11,10 +11,10 @@ export function formatPlayerName(player: NamedPlayer) {
   return joinPlayerName(player) || translate('common.notAvailable')
 }
 
-export function formatPlayerLabel(player?: Player, jerseyNumber?: number) {
+export function formatPlayerLabel(player?: Player, jerseyNumber?: string) {
   const name = joinPlayerName(player)
   if (name) return name
 
-  const shirtNumber = jerseyNumber ?? player?.jerseyNumber
-  return shirtNumber === undefined ? translate('common.notAvailable') : `#${shirtNumber}`
+  const shirtNumber = jerseyNumber || player?.jerseyNumber
+  return shirtNumber ? `#${shirtNumber}` : translate('common.notAvailable')
 }
