@@ -98,7 +98,7 @@
 .team-cell span { color: var(--color-gray-600); font-size: 13px; }
 .score-cell { color: var(--color-primary); font: 800 16px var(--display); white-space: nowrap; }
 .drawer-backdrop { position: fixed; inset: 0; z-index: 20; display: flex; justify-content: flex-end; background: rgba(24,49,80,.38); }
-.match-drawer { width: min(520px,100%); height: 100%; overflow-y: auto; background: var(--color-white); box-shadow: -12px 0 40px rgba(24,49,80,.18); }
+.match-drawer { width: min(720px,100%); height: 100%; overflow-y: auto; background: var(--color-white); box-shadow: -12px 0 40px rgba(24,49,80,.18); }
 .drawer-header { padding: 28px 30px 24px; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--color-gray-200); }
 .drawer-header .eyebrow { margin: 0 0 8px; }
 .drawer-header h2 { margin: 0; color: var(--color-primary); font: 800 28px/1.1 var(--display); }
@@ -121,6 +121,10 @@
 .report-facts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
 .report-facts div { display: grid; gap: 5px; }
 .report-facts strong { color: var(--color-primary); font-size: 14px; }
+.report-box-score { margin-top: 22px; }
+.report-box-score h4 { margin: 0 0 12px; color: var(--color-secondary); font: 800 12px var(--body); text-transform: uppercase; }
+.match-drawer .data-table th,
+.match-drawer .data-table td { padding: 12px 14px; white-space: nowrap; }
 .phase-tabs { margin: 28px 0 0; display: inline-flex; gap: 0; border: 1px solid var(--color-gray-200); background: var(--color-white); }
 .phase-tab { min-height: 46px; padding: 0 22px; border: 0; border-right: 1px solid var(--color-gray-200); color: var(--color-gray-600); background: transparent; font: 800 13px var(--display); text-transform: uppercase; letter-spacing: 0.04em; cursor: pointer; }
 .phase-tab:last-child { border-right: 0; }

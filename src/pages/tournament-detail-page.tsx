@@ -30,6 +30,7 @@ import {
 } from '../api/api-client'
 import { ConfirmDialog } from '../components/confirm-dialog'
 import { FinalMatchStats } from '../components/final-match-stats'
+import { MatchReportBoxScore } from '../components/match-report-box-score'
 import { attendanceStatusKeys } from '../utils/attendance-status'
 import { matchPhaseKeys, matchStatusKeys } from '../utils/match-status'
 import { findDuplicateIdentityKeys, getPlayerIdentity, type PlayerIdentity } from '../utils/player-identity'
@@ -248,6 +249,18 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
     return rosterLabelsByRegistrationId.get(matchPlayer.registrationId)
       ?? matchPlayer.name
       ?? (matchPlayer.jerseyNumber ? `#${matchPlayer.jerseyNumber}` : translate('common.notAvailable'))
+  }
+
+  function getMatchPlayerLabelFromId(registrationId: string, match?: Match) {
+    const fromRoster = rosterLabelsByRegistrationId.get(registrationId)
+    if (fromRoster) return fromRoster
+
+    const sourceMatch = match ?? matchInDrawer
+    const matchPlayer = sourceMatch
+      ? [...getTeamPlayers(sourceMatch, 'A'), ...getTeamPlayers(sourceMatch, 'B')]
+        .find((player) => player.registrationId === registrationId)
+      : undefined
+    return matchPlayer ? getMatchPlayerLabel(matchPlayer) : translate('common.notAvailable')
   }
 
   function getTeamPlayers(match: Match, side: 'A' | 'B') {
@@ -829,7 +842,7 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
                     report={report}
                     groupName={(match.finalGroupId && finalGroupNamesById.get(match.finalGroupId)) ?? translate('common.notAvailable')}
                     courtName={(match.courtId && courtNamesById.get(match.courtId)) ?? translate('common.notAvailable')}
-                    getPlayerLabel={(registrationId) => rosterLabelsByRegistrationId.get(registrationId) ?? translate('common.notAvailable')}
+                    getPlayerLabel={(registrationId) => getMatchPlayerLabelFromId(registrationId, match)}
                   />
                 )
               })}
@@ -962,12 +975,26 @@ export function TournamentDetailPage({ tournamentId, token, onUnauthorized, onBa
 
           <section className="drawer-section">
             <h3>{translate('tournamentDetail.matchReport')}</h3>
-            {isLoadingMatchReport ? <p>{translate('common.loading')}</p> : !matchReport ? <p>{translate('tournamentDetail.matchReportEmpty')}</p> : <div className="report-facts">
-              <div><span>{translate('tournamentDetail.reportSubmittedAt')}</span><strong>{dateTimeFormatter.format(new Date(matchReport.submittedAt))}</strong></div>
-              <div><span>{translate('tournamentDetail.reportRevision')}</span><strong>{matchReport.revision}</strong></div>
-              <div><span>{translate('tournamentDetail.reportBaskets')}</span><strong>{matchReport.baskets?.length ?? 0}</strong></div>
-              <div><span>{translate('tournamentDetail.reportFouls')}</span><strong>{matchReport.fouls?.length ?? 0}</strong></div>
-            </div>}
+            {isLoadingMatchReport ? <p>{translate('common.loading')}</p> : !matchReport ? <p>{translate('tournamentDetail.matchReportEmpty')}</p> : <>
+              <div className="report-facts">
+                <div><span>{translate('tournamentDetail.reportSubmittedAt')}</span><strong>{dateTimeFormatter.format(new Date(matchReport.submittedAt))}</strong></div>
+                <div><span>{translate('tournamentDetail.reportRevision')}</span><strong>{matchReport.revision}</strong></div>
+                <div><span>{translate('tournamentDetail.reportBaskets')}</span><strong>{matchReport.baskets?.length ?? 0}</strong></div>
+                <div><span>{translate('tournamentDetail.reportFouls')}</span><strong>{matchReport.fouls?.length ?? 0}</strong></div>
+                <div><span>{translate('tournamentDetail.mvpAward')}</span><strong>{matchReport.awards?.mvpRegistrationId ? getMatchPlayerLabelFromId(matchReport.awards.mvpRegistrationId, matchInDrawer) : translate('common.notAvailable')}</strong></div>
+                <div><span>{translate('tournamentDetail.fairPlayAward')}</span><strong>{matchReport.awards?.fairPlayRegistrationId ? getMatchPlayerLabelFromId(matchReport.awards.fairPlayRegistrationId, matchInDrawer) : translate('common.notAvailable')}</strong></div>
+                {matchReport.unattributedPointsA > 0 && <div><span>{translate('tournamentDetail.unattributedPointsA')}</span><strong>{matchReport.unattributedPointsA}</strong></div>}
+                {matchReport.unattributedPointsB > 0 && <div><span>{translate('tournamentDetail.unattributedPointsB')}</span><strong>{matchReport.unattributedPointsB}</strong></div>}
+              </div>
+              <div className="report-box-score">
+                <h4>{translate('tournamentDetail.playerStats')}</h4>
+                <MatchReportBoxScore
+                  match={matchInDrawer}
+                  report={matchReport}
+                  getPlayerLabel={(registrationId) => getMatchPlayerLabelFromId(registrationId, matchInDrawer)}
+                />
+              </div>
+            </>}
           </section>
         </div>
       </aside>
